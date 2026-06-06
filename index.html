@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#233142" />
+    <title>Counterpoint PoS</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Counterpoint</p>
+          <h1>Sales</h1>
+        </div>
+        <div class="top-actions">
+          <div class="menu-wrap">
+            <button class="icon-button menu-button" id="menuButton" title="Menu" aria-label="Menu" aria-expanded="false">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <nav class="app-menu" id="appMenu" aria-label="Main menu">
+        <button type="button" id="historyButton">Sale history</button>
+        <button type="button" id="categoriesButton">Categories</button>
+        <button type="button" id="manageButton">Products</button>
+        <button type="button" id="settingsButton">Settings</button>
+      </nav>
+
+      <main class="workspace">
+        <section class="catalog-panel" aria-label="Product catalog">
+          <div class="toolbar">
+            <label class="search-box">
+              <span>Search</span>
+              <input id="searchInput" type="search" placeholder="Name, SKU, category" autocomplete="off" />
+            </label>
+            <button class="text-button scan-button" type="button" id="scanBarcodeButton">Scan barcode</button>
+            <div class="segmented" id="categoryTabs" role="tablist" aria-label="Categories"></div>
+          </div>
+          <div class="product-grid" id="productGrid"></div>
+        </section>
+
+        <aside class="cart-panel" aria-label="Current cart">
+          <div class="cart-head">
+            <div>
+              <p class="eyebrow">Current sale</p>
+              <h2 id="cartCount">0 items</h2>
+            </div>
+            <button class="text-button danger" id="clearCartButton">Clear</button>
+          </div>
+
+          <div class="cart-list" id="cartList"></div>
+
+          <div class="totals">
+            <label class="field-row">
+              <span>Discount</span>
+              <input id="discountInput" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <div class="total-row"><span>Subtotal</span><strong id="subtotalValue">$0.00</strong></div>
+            <div class="total-row"><span>Tax</span><strong id="taxValue">$0.00</strong></div>
+            <div class="total-row profit"><span>Profit</span><strong id="profitValue">$0.00</strong></div>
+            <div class="total-row grand"><span>Total</span><strong id="totalValue">$0.00</strong></div>
+          </div>
+
+          <button class="checkout-button" id="checkoutButton">Checkout</button>
+        </aside>
+      </main>
+    </div>
+
+    <dialog id="checkoutDialog" class="modal">
+      <form method="dialog" class="modal-card" id="checkoutForm">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Payment</p>
+            <h2>Cash checkout</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeCheckoutButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <div class="checkout-total" id="checkoutTotal">$0.00</div>
+        <label class="field-stack">
+          Cash received
+          <input id="cashInput" type="number" min="0" step="0.01" inputmode="decimal" />
+        </label>
+        <div class="change-due">
+          <span>Change due</span>
+          <strong id="changeValue">$0.00</strong>
+        </div>
+        <menu class="modal-actions">
+          <button class="text-button" type="button" id="cancelCheckoutButton">Cancel</button>
+          <button class="primary-button" id="completeSaleButton" value="default">Complete sale</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="historyDialog" class="modal">
+      <div class="modal-card wide">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Receipts</p>
+            <h2>Sales history</h2>
+          </div>
+          <button class="icon-button" id="closeHistoryButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <div class="receipt-list" id="receiptList"></div>
+      </div>
+    </dialog>
+
+    <dialog id="manageDialog" class="modal">
+      <div class="modal-card wide inventory-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Inventory</p>
+            <h2>Categories & products</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeManageButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <form class="inventory-section" id="productForm" aria-label="Add product">
+          <div class="section-head">
+            <h3>Add product</h3>
+            <span>Create a new item</span>
+          </div>
+          <div class="product-form-grid">
+            <label class="field-stack">Name<input id="productName" required /></label>
+            <label class="field-stack">Category<input id="productCategory" required /></label>
+            <label class="field-stack">Buying price<input id="productCost" required type="number" min="0" step="0.01" /></label>
+            <label class="field-stack">Selling price<input id="productPrice" required type="number" min="0" step="0.01" /></label>
+            <label class="field-stack">Quantity bought<input id="productStock" required type="number" min="0" step="1" inputmode="numeric" /></label>
+            <label class="field-stack">SKU<input id="productSku" required /></label>
+            <label class="field-stack">Barcode<input id="productBarcode" inputmode="numeric" autocomplete="off" /></label>
+            <label class="field-stack">Product image<input id="productImageFile" type="file" accept="image/*" capture="environment" /></label>
+          </div>
+          <div class="add-product-actions">
+            <button class="primary-button" id="saveProductButton">Save product</button>
+          </div>
+        </form>
+        <section class="inventory-section" aria-label="Product tracking">
+          <div class="section-head">
+            <h3>Product tracking</h3>
+            <span>Bought, sold, and left</span>
+          </div>
+          <div class="inventory-list" id="inventoryList"></div>
+        </section>
+        <menu class="modal-actions">
+          <button class="text-button" type="button" id="cancelManageButton">Cancel</button>
+        </menu>
+      </div>
+    </dialog>
+
+    <dialog id="categoriesDialog" class="modal">
+      <div class="modal-card wide manager-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Categories</p>
+            <h2>Category pages</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeCategoriesButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <section class="inventory-section" aria-label="Category pages">
+          <div class="section-head">
+            <h3>Products by category</h3>
+            <span>Edit names, prices, stock, and groups</span>
+          </div>
+          <div class="category-pages" id="categoryPages"></div>
+        </section>
+        <menu class="modal-actions">
+          <button class="text-button" type="button" id="cancelCategoriesButton">Cancel</button>
+        </menu>
+      </div>
+    </dialog>
+
+    <dialog id="settingsDialog" class="modal">
+      <div class="modal-card wide settings-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2>App settings</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeSettingsButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <section class="settings-list">
+          <div class="setting-row printer-setting">
+            <div>
+              <h3>Printers</h3>
+              <p id="printerStatus">No printer connected</p>
+              <div class="printer-fields">
+                <label>WiFi printer IP<input id="printerHostInput" placeholder="192.168.1.50" inputmode="numeric" /></label>
+                <label>Port<input id="printerPortInput" placeholder="9100" inputmode="numeric" /></label>
+              </div>
+            </div>
+            <div class="printer-actions">
+              <button class="text-button" type="button" id="bluetoothPrinterButton">Connect Bluetooth</button>
+              <button class="text-button" type="button" id="savePrinterButton">Save WiFi</button>
+            </div>
+          </div>
+          <label class="setting-row">
+            <div>
+              <h3>Dark mode</h3>
+              <p>Use a darker interface for low-light counters</p>
+            </div>
+            <input id="darkModeToggle" type="checkbox" />
+          </label>
+          <label class="setting-row">
+            <div>
+              <h3>Home screen item layout</h3>
+              <p>Choose how products appear on the sales screen</p>
+            </div>
+            <select id="layoutSelect">
+              <option value="grid">Grid</option>
+              <option value="list">List</option>
+            </select>
+          </label>
+          <label class="setting-row">
+            <div>
+              <h3>Language</h3>
+              <p>Change the app language</p>
+            </div>
+            <select id="languageSelect">
+              <option value="en">English</option>
+              <option value="my">Burmese</option>
+              <option value="th">Thai</option>
+            </select>
+          </label>
+          <div class="setting-row">
+            <div>
+              <h3>Backup/export</h3>
+              <p>Export all products, receipts, categories, and settings</p>
+            </div>
+            <div class="settings-actions">
+              <button class="text-button" type="button" id="exportBackupButton">Export</button>
+              <label class="text-button import-button">Import<input id="importBackupInput" type="file" accept="application/json" /></label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <h3>Staff login</h3>
+              <p>Add staff members who can log in with their own PIN</p>
+            </div>
+            <div class="staff-pin-row">
+              <input id="staffNameSetting" placeholder="Staff name" />
+              <input id="staffPinSetting" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
+              <button class="text-button" type="button" id="saveStaffPinButton">Add staff</button>
+              <div class="staff-list" id="staffList"></div>
+            </div>
+          </div>
+        </section>
+        <menu class="modal-actions">
+          <button class="text-button" type="button" id="cancelSettingsButton">Close</button>
+        </menu>
+      </div>
+    </dialog>
+
+    <dialog id="loginDialog" class="modal login-dialog">
+      <form class="modal-card" id="loginForm">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Staff</p>
+            <h2>Staff login</h2>
+          </div>
+        </div>
+        <label class="field-stack">Staff member<select id="staffSelect"></select></label>
+        <label class="field-stack">PIN<input id="staffPinInput" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Default 1234" /></label>
+        <section class="signup-panel">
+          <h3>Add staff</h3>
+          <label class="field-stack">Name<input id="signupStaffName" placeholder="Staff name" /></label>
+          <label class="field-stack">PIN<input id="signupStaffPin" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" /></label>
+          <button class="text-button" type="button" id="signupStaffButton">Create staff</button>
+        </section>
+        <button class="primary-button" id="loginButton" type="submit">Unlock</button>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
