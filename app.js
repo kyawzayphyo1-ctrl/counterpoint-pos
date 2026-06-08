@@ -1,11 +1,12 @@
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-const TAX_RATE = 0.0825;
 const DB_NAME = "counterpoint-pos-db";
 const DB_STORE = "records";
 const DB_VERSION = 1;
 const STAFF_SESSION_KEY = "pos-current-staff-id";
 const DEFAULT_STAFF_ID = "starter-profile";
 const DEFAULT_STAFF_PIN = "1234";
+const LOW_STOCK_MIN = 5;
+const LOW_STOCK_RATIO = 0.2;
 const productColors = ["#2f7d6d", "#c94f4f", "#d49b3d", "#4d6f9f", "#7a5c99", "#557a46"];
 
 const defaultProducts = [
@@ -30,6 +31,10 @@ const store = {
     darkMode: false,
     layout: "grid",
     language: "en",
+    tax: {
+      enabled: false,
+      rate: 0
+    },
     printer: {
       type: "none",
       host: "",
@@ -42,6 +47,12 @@ const store = {
   activeCategory: "All",
   collapsedCategories: new Set(readStorage("pos-collapsed-categories", [])),
   activeExpenseTab: "",
+  activeProductPage: "",
+  productTrackingSearch: "",
+  summaryPeriod: "day",
+  summaryDay: formatDateInput(),
+  summaryMonth: formatDateInput().slice(0, 7),
+  summaryYear: String(new Date().getFullYear()),
   editingCategory: null,
   editingProduct: null,
   search: "",
@@ -89,9 +100,16 @@ const els = {
   summaryDialog: document.querySelector("#summaryDialog"),
   summaryButton: document.querySelector("#summaryButton"),
   closeSummaryButton: document.querySelector("#closeSummaryButton"),
+  summaryTitle: document.querySelector("#summaryTitle"),
+  summaryPeriodButtons: document.querySelector("#summaryPeriodButtons"),
+  summaryDayInput: document.querySelector("#summaryDayInput"),
+  summaryMonthInput: document.querySelector("#summaryMonthInput"),
+  summaryYearInput: document.querySelector("#summaryYearInput"),
   summaryGrid: document.querySelector("#summaryGrid"),
   bestSellerList: document.querySelector("#bestSellerList"),
+  bestSellerRange: document.querySelector("#bestSellerRange"),
   paymentSummaryList: document.querySelector("#paymentSummaryList"),
+  paymentSummaryRange: document.querySelector("#paymentSummaryRange"),
   expenseDialog: document.querySelector("#expenseDialog"),
   expenseButton: document.querySelector("#expenseButton"),
   closeExpenseButton: document.querySelector("#closeExpenseButton"),
@@ -138,6 +156,8 @@ const els = {
   savePrinterButton: document.querySelector("#savePrinterButton"),
   printerHostInput: document.querySelector("#printerHostInput"),
   printerPortInput: document.querySelector("#printerPortInput"),
+  taxEnabledToggle: document.querySelector("#taxEnabledToggle"),
+  taxRateInput: document.querySelector("#taxRateInput"),
   darkModeToggle: document.querySelector("#darkModeToggle"),
   layoutSelect: document.querySelector("#layoutSelect"),
   languageSelect: document.querySelector("#languageSelect"),
@@ -154,7 +174,8 @@ const els = {
   manageDialog: document.querySelector("#manageDialog"),
   manageButton: document.querySelector("#manageButton"),
   closeManageButton: document.querySelector("#closeManageButton"),
-  cancelManageButton: document.querySelector("#cancelManageButton"),
+  productTabs: document.querySelector("#productTabs"),
+  productTrackingSearch: document.querySelector("#productTrackingSearch"),
   productForm: document.querySelector("#productForm"),
   productName: document.querySelector("#productName"),
   productCategory: document.querySelector("#productCategory"),
@@ -272,10 +293,17 @@ function normalizeSettings(settings) {
   const printer = typeof settings.printer === "object" && settings.printer
     ? settings.printer
     : { type: "none", host: "", port: "9100", bluetoothName: "" };
+  const tax = typeof settings.tax === "object" && settings.tax
+    ? settings.tax
+    : { enabled: false, rate: 0 };
   return {
     darkMode: Boolean(settings.darkMode),
     layout: settings.layout || "grid",
     language: settings.language || "en",
+    tax: {
+      enabled: Boolean(tax.enabled),
+      rate: Math.max(Number(tax.rate || 0), 0)
+    },
     printer: {
       type: printer.type || "none",
       host: printer.host || "",
@@ -293,6 +321,9 @@ function applySettings() {
   els.darkModeToggle.checked = Boolean(store.settings.darkMode);
   els.layoutSelect.value = store.settings.layout;
   els.languageSelect.value = store.settings.language;
+  els.taxEnabledToggle.checked = Boolean(store.settings.tax.enabled);
+  els.taxRateInput.value = store.settings.tax.rate || 0;
+  els.taxRateInput.disabled = !store.settings.tax.enabled;
   els.printerHostInput.value = store.settings.printer.host || "";
   els.printerPortInput.value = store.settings.printer.port || "9100";
   els.printerStatus.textContent = getPrinterStatus();
@@ -440,7 +471,8 @@ function getTotals() {
   const cost = lines.reduce((sum, line) => sum + line.lineCost, 0);
   const discount = Math.min(store.discount, subtotal);
   const taxable = Math.max(subtotal - discount, 0);
-  const tax = taxable * TAX_RATE;
+  const taxRate = store.settings.tax.enabled ? Number(store.settings.tax.rate || 0) / 100 : 0;
+  const tax = taxable * taxRate;
   const profit = taxable - cost;
   return { subtotal, cost, discount, tax, profit, total: taxable + tax };
 }
@@ -481,6 +513,59 @@ function isToday(value) {
   return date.getFullYear() === now.getFullYear()
     && date.getMonth() === now.getMonth()
     && date.getDate() === now.getDate();
+}
+
+function getSummaryRange() {
+  if (store.summaryPeriod === "month") {
+    const [year, month] = (store.summaryMonth || formatDateInput().slice(0, 7)).split("-").map(Number);
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 1);
+    return {
+      start,
+      end,
+      label: start.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      emptyText: "No sales this month."
+    };
+  }
+  if (store.summaryPeriod === "year") {
+    const year = Number(store.summaryYear || new Date().getFullYear());
+    return {
+      start: new Date(year, 0, 1),
+      end: new Date(year + 1, 0, 1),
+      label: String(year),
+      emptyText: "No sales this year."
+    };
+  }
+  const selected = store.summaryDay || formatDateInput();
+  const start = new Date(`${selected}T00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return {
+    start,
+    end,
+    label: start.toLocaleDateString(),
+    emptyText: "No sales this day."
+  };
+}
+
+function isInSummaryRange(value, range) {
+  const date = new Date(value);
+  return date >= range.start && date < range.end;
+}
+
+function renderSummaryControls(range) {
+  els.summaryTitle.textContent = `${store.summaryPeriod[0].toUpperCase()}${store.summaryPeriod.slice(1)} summary`;
+  els.summaryDayInput.value = store.summaryDay;
+  els.summaryMonthInput.value = store.summaryMonth;
+  els.summaryYearInput.value = store.summaryYear;
+  els.summaryPeriodButtons.querySelectorAll("button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.summaryPeriod === store.summaryPeriod);
+  });
+  document.querySelectorAll("[data-summary-picker]").forEach((picker) => {
+    picker.classList.toggle("is-hidden", picker.dataset.summaryPicker !== store.summaryPeriod);
+  });
+  els.bestSellerRange.textContent = range.label;
+  els.paymentSummaryRange.textContent = range.label;
 }
 
 function getActiveReceipts(receipts = store.receipts) {
@@ -680,12 +765,14 @@ function voidReceipt(receiptNumber) {
 }
 
 function renderSummary() {
-  const todaysReceipts = getActiveReceipts().filter((receipt) => isToday(receipt.createdAt));
-  const todaysPurchases = store.purchases.filter((purchase) => isToday(purchase.createdAt));
-  const todaysExpenses = store.expenses.filter((expense) => isToday(expense.createdAt));
-  const purchaseSpend = todaysPurchases.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
-  const otherSpend = todaysExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-  const totals = todaysReceipts.reduce((acc, receipt) => {
+  const range = getSummaryRange();
+  renderSummaryControls(range);
+  const selectedReceipts = getActiveReceipts().filter((receipt) => isInSummaryRange(receipt.createdAt, range));
+  const selectedPurchases = store.purchases.filter((purchase) => isInSummaryRange(purchase.createdAt, range));
+  const selectedExpenses = store.expenses.filter((expense) => isInSummaryRange(expense.createdAt, range));
+  const purchaseSpend = selectedPurchases.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+  const otherSpend = selectedExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const totals = selectedReceipts.reduce((acc, receipt) => {
     acc.sales += Number(receipt.total || 0);
     acc.profit += Number(receipt.profit || 0);
     acc.orders += 1;
@@ -704,7 +791,7 @@ function renderSummary() {
   `;
 
   const products = new Map();
-  todaysReceipts.forEach((receipt) => {
+  selectedReceipts.forEach((receipt) => {
     receipt.lines.forEach((line) => {
       const current = products.get(line.name) || { quantity: 0, total: 0 };
       current.quantity += Number(line.quantity || 0);
@@ -717,16 +804,16 @@ function renderSummary() {
     .slice(0, 5);
   els.bestSellerList.innerHTML = bestSellers.length
     ? bestSellers.map(([name, item]) => `<div><span>${escapeHtml(name)} x ${item.quantity}</span><strong>${money.format(item.total)}</strong></div>`).join("")
-    : `<div class="empty-state">No sales today.</div>`;
+    : `<div class="empty-state">${range.emptyText}</div>`;
 
   const payments = new Map();
-  todaysReceipts.forEach((receipt) => {
+  selectedReceipts.forEach((receipt) => {
     const method = receipt.paymentMethod || "cash";
     payments.set(method, (payments.get(method) || 0) + Number(receipt.total || 0));
   });
   els.paymentSummaryList.innerHTML = payments.size
     ? [...payments.entries()].map(([method, total]) => `<div><span>${getPaymentLabel(method)}</span><strong>${money.format(total)}</strong></div>`).join("")
-    : `<div class="empty-state">No payments today.</div>`;
+    : `<div class="empty-state">No payments for this period.</div>`;
 }
 
 function formatDateInput(date = new Date()) {
@@ -849,6 +936,16 @@ function renderExpenseTab() {
         ? "Record tax, license, and government fees"
         : "Record other money out";
   }
+}
+
+function renderProductPage() {
+  els.productTabs.classList.toggle("is-hidden", Boolean(store.activeProductPage));
+  els.productTabs.querySelectorAll("button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.productPage === store.activeProductPage);
+  });
+  document.querySelectorAll("[data-product-panel]").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.productPanel === store.activeProductPage);
+  });
 }
 
 function saveSimpleExpense(event) {
@@ -1026,18 +1123,75 @@ function renderPurchases() {
   });
 }
 
+function getProductSupplierHistory(product) {
+  return store.purchases
+    .flatMap((purchase) => purchase.lines
+      .filter((line) => line.productId === product.id)
+      .map((line) => ({
+        purchaseNumber: purchase.number,
+        voucherNumber: purchase.voucherNumber,
+        supplier: purchase.supplier,
+        createdAt: purchase.createdAt,
+        quantity: Number(line.quantity || 0),
+        unitCost: Number(line.unitCost || 0),
+        lineTotal: Number(line.lineTotal || 0)
+      })))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function isLowStock(product) {
+  const stock = Number(product.stock || 0);
+  const purchased = Number(product.purchased || 0);
+  return stock <= LOW_STOCK_MIN || (purchased > 0 && stock / purchased <= LOW_STOCK_RATIO);
+}
+
 function renderInventory() {
   els.inventoryList.innerHTML = "";
+  const query = store.productTrackingSearch.trim().toLowerCase();
+  let visibleCount = 0;
   store.products.forEach((product) => {
     const sold = Math.max(product.purchased - product.stock, 0);
+    const supplierHistory = getProductSupplierHistory(product);
+    const latestSupplier = supplierHistory[0];
+    const supplierCount = new Set(supplierHistory.map((entry) => entry.supplier)).size;
+    const searchable = [
+      product.name,
+      product.category,
+      product.sku,
+      product.barcode,
+      ...supplierHistory.map((entry) => `${entry.supplier} ${entry.purchaseNumber} ${entry.voucherNumber || ""}`)
+    ].join(" ").toLowerCase();
+    if (query && !searchable.includes(query)) return;
+    visibleCount += 1;
     const node = document.createElement("article");
-    node.className = `inventory-item${product.stock <= 0 ? " is-empty" : ""}`;
+    node.className = `inventory-item${product.stock <= 0 ? " is-empty" : ""}${isLowStock(product) ? " is-low-stock" : ""}`;
     node.innerHTML = `
       <div>
         <strong>${escapeHtml(product.name)}</strong>
         <span>${escapeHtml(product.category)} - ${escapeHtml(product.sku)}</span>
+        <div class="supplier-history">
+          <div class="supplier-history-summary">
+            <span>Last supplier</span>
+            <strong>${latestSupplier ? `${escapeHtml(latestSupplier.supplier)} - ${money.format(latestSupplier.unitCost)}` : "No voucher history"}</strong>
+            ${latestSupplier ? `<span>${new Date(latestSupplier.createdAt).toLocaleDateString()} / ${escapeHtml(latestSupplier.purchaseNumber)} / ${supplierCount} ${supplierCount === 1 ? "supplier" : "suppliers"}</span>` : ""}
+          </div>
+          ${supplierHistory.length ? `
+            <details>
+              <summary>Supplier history (${supplierHistory.length})</summary>
+              <div class="supplier-history-list">
+                ${supplierHistory.slice(0, 6).map((entry) => `
+                  <div>
+                    <span>${new Date(entry.createdAt).toLocaleDateString()} / ${escapeHtml(entry.purchaseNumber)}${entry.voucherNumber ? ` / ${escapeHtml(entry.voucherNumber)}` : ""}</span>
+                    <strong>${escapeHtml(entry.supplier)} - ${entry.quantity} @ ${money.format(entry.unitCost)}</strong>
+                  </div>
+                `).join("")}
+              </div>
+            </details>
+          ` : ""}
+        </div>
       </div>
       <div class="inventory-counts">
+        ${isLowStock(product) ? `<span class="stock-alert-label">Low stock</span>` : ""}
         <span>Bought ${product.purchased}</span>
         <span>Sold ${sold}</span>
         <strong>Left ${product.stock}</strong>
@@ -1045,6 +1199,9 @@ function renderInventory() {
     `;
     els.inventoryList.append(node);
   });
+  if (!visibleCount) {
+    els.inventoryList.innerHTML = `<div class="empty-state">No products match this search.</div>`;
+  }
 }
 
 function renderCategoryPages() {
@@ -1283,8 +1440,9 @@ async function saveProduct(event) {
   store.products.push(product);
   writeStorage("pos-products", store.products);
   els.productForm.reset();
-  els.manageDialog.close();
   store.activeCategory = product.category;
+  store.activeProductPage = "";
+  renderProductPage();
   render();
   showToast("Product added");
 }
@@ -1579,6 +1737,24 @@ els.summaryButton.addEventListener("click", () => {
   els.summaryDialog.showModal();
 });
 els.closeSummaryButton.addEventListener("click", () => els.summaryDialog.close());
+els.summaryPeriodButtons.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-summary-period]");
+  if (!button) return;
+  store.summaryPeriod = button.dataset.summaryPeriod;
+  renderSummary();
+});
+els.summaryDayInput.addEventListener("input", (event) => {
+  store.summaryDay = event.target.value || formatDateInput();
+  renderSummary();
+});
+els.summaryMonthInput.addEventListener("input", (event) => {
+  store.summaryMonth = event.target.value || formatDateInput().slice(0, 7);
+  renderSummary();
+});
+els.summaryYearInput.addEventListener("input", (event) => {
+  store.summaryYear = event.target.value || String(new Date().getFullYear());
+  renderSummary();
+});
 els.expenseButton.addEventListener("click", () => {
   toggleMenu(false);
   openExpenseDialog();
@@ -1627,11 +1803,30 @@ els.closeCategoriesButton.addEventListener("click", () => els.categoriesDialog.c
 els.cancelCategoriesButton.addEventListener("click", () => els.categoriesDialog.close());
 els.manageButton.addEventListener("click", () => {
   toggleMenu(false);
+  store.activeProductPage = "";
+  renderProductPage();
   renderInventory();
   els.manageDialog.showModal();
 });
-els.closeManageButton.addEventListener("click", () => els.manageDialog.close());
-els.cancelManageButton.addEventListener("click", () => els.manageDialog.close());
+els.closeManageButton.addEventListener("click", () => {
+  if (store.activeProductPage) {
+    store.activeProductPage = "";
+    renderProductPage();
+    return;
+  }
+  els.manageDialog.close();
+});
+els.productTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-product-page]");
+  if (!button) return;
+  store.activeProductPage = button.dataset.productPage;
+  renderProductPage();
+  if (store.activeProductPage === "tracking") renderInventory();
+});
+els.productTrackingSearch.addEventListener("input", (event) => {
+  store.productTrackingSearch = event.target.value;
+  renderInventory();
+});
 els.productForm.addEventListener("submit", saveProduct);
 els.settingsButton.addEventListener("click", () => {
   toggleMenu(false);
@@ -1689,6 +1884,18 @@ els.layoutSelect.addEventListener("change", (event) => {
 });
 els.languageSelect.addEventListener("change", (event) => {
   updateSetting("language", event.target.value);
+});
+els.taxEnabledToggle.addEventListener("change", (event) => {
+  store.settings.tax.enabled = event.target.checked;
+  saveSettings();
+  applySettings();
+  renderCart();
+  showToast(event.target.checked ? "Tax enabled" : "Tax disabled");
+});
+els.taxRateInput.addEventListener("input", (event) => {
+  store.settings.tax.rate = Math.max(Number(event.target.value || 0), 0);
+  saveSettings();
+  renderCart();
 });
 els.exportBackupButton.addEventListener("click", exportBackup);
 els.importBackupInput.addEventListener("change", (event) => {

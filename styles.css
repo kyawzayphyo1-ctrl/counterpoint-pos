@@ -610,7 +610,12 @@ button:focus-visible {
 .inventory-card {
   width: 100%;
   max-width: 100%;
+  align-content: start;
   overflow-x: hidden;
+}
+
+#manageDialog .inventory-card {
+  padding-inline: clamp(20px, 3vw, 32px) !important;
 }
 
 .modal-head {
@@ -729,6 +734,26 @@ button:focus-visible {
   width: min(820px, calc(100vw - 28px));
 }
 
+.summary-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-period {
+  grid-column: auto;
+  padding: 0;
+}
+
+.summary-date-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 360px;
+}
+
+.summary-date-controls .is-hidden {
+  display: none;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -793,6 +818,10 @@ button:focus-visible {
 
 .expense-tabs.is-hidden {
   display: none;
+}
+
+.product-tabs {
+  margin-bottom: 4px;
 }
 
 .expense-tabs button {
@@ -868,6 +897,14 @@ button:focus-visible {
 }
 
 .inventory-section.expense-panel.active {
+  display: grid;
+}
+
+.inventory-section.product-panel {
+  display: none;
+}
+
+.inventory-section.product-panel.active {
   display: grid;
 }
 
@@ -1032,6 +1069,37 @@ button:focus-visible {
   gap: 8px;
 }
 
+.tax-controls {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.tax-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.tax-controls .toggle-line {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.tax-controls input[type="number"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--panel);
+}
+
 .product-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1082,8 +1150,27 @@ button:focus-visible {
 .inventory-list {
   display: grid;
   gap: 8px;
-  max-height: 220px;
+  max-height: 58vh;
   overflow: auto;
+}
+
+.product-tracking-search {
+  text-transform: none;
+}
+
+.product-tracking-search span {
+  text-transform: uppercase;
+}
+
+.inventory-item.is-low-stock {
+  border-color: #c94f4f;
+  border-left-width: 5px;
+  background: #fff8f8;
+}
+
+.stock-alert-label {
+  color: #c94f4f;
+  font-weight: 900;
 }
 
 .category-pages {
@@ -1379,6 +1466,54 @@ button:focus-visible {
 .inventory-item span {
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.supplier-history {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.supplier-history-summary {
+  display: grid;
+  gap: 2px;
+}
+
+.supplier-history-summary strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.supplier-history details {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.supplier-history summary {
+  cursor: pointer;
+  color: #4b46e8;
+  font-size: 0.86rem;
+  font-weight: 850;
+  text-decoration: underline;
+}
+
+.supplier-history-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+}
+
+.supplier-history-list div {
+  display: grid;
+  gap: 2px;
+}
+
+.supplier-history-list strong {
+  color: var(--ink);
+  font-size: 0.88rem;
 }
 
 .inventory-counts {
@@ -1689,6 +1824,10 @@ body.dark-mode .receipt-preview {
     min-height: 100dvh;
     max-height: 100dvh;
     padding: 14px;
+  }
+
+  #manageDialog.page-modal .inventory-card {
+    padding-inline: 18px;
   }
 
   .modal-head {
