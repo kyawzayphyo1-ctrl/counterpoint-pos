@@ -4,6 +4,8 @@ const DB_NAME = "counterpoint-pos-db";
 const DB_STORE = "records";
 const DB_VERSION = 1;
 const STAFF_SESSION_KEY = "pos-current-staff-id";
+const DEFAULT_STAFF_ID = "starter-profile";
+const DEFAULT_STAFF_PIN = "1234";
 const productColors = ["#2f7d6d", "#c94f4f", "#d49b3d", "#4d6f9f", "#7a5c99", "#557a46"];
 
 const defaultProducts = [
@@ -22,6 +24,8 @@ const defaultProducts = [
 const store = {
   products: normalizeProducts(readStorage("pos-products", defaultProducts)),
   receipts: readStorage("pos-receipts", []),
+  purchases: readStorage("pos-purchases", []),
+  expenses: readStorage("pos-expenses", []),
   settings: normalizeSettings(readStorage("pos-settings", {
     darkMode: false,
     layout: "grid",
@@ -33,10 +37,11 @@ const store = {
       bluetoothName: ""
     }
   })),
-  staff: normalizeStaff(readStorage("pos-staff", { members: [{ id: "owner", name: "Owner", pin: "1234" }] })),
+  staff: normalizeStaff(readStorage("pos-staff", { members: [{ id: DEFAULT_STAFF_ID, name: "Starter profile", pin: DEFAULT_STAFF_PIN, isDefault: true }] })),
   cart: new Map(),
   activeCategory: "All",
   collapsedCategories: new Set(readStorage("pos-collapsed-categories", [])),
+  activeExpenseTab: "",
   editingCategory: null,
   editingProduct: null,
   search: "",
@@ -57,6 +62,7 @@ const els = {
   discountInput: document.querySelector("#discountInput"),
   searchInput: document.querySelector("#searchInput"),
   scanBarcodeButton: document.querySelector("#scanBarcodeButton"),
+  currentStaffBadge: document.querySelector("#currentStaffBadge"),
   menuButton: document.querySelector("#menuButton"),
   appMenu: document.querySelector("#appMenu"),
   checkoutDialog: document.querySelector("#checkoutDialog"),
@@ -64,9 +70,57 @@ const els = {
   closeCheckoutButton: document.querySelector("#closeCheckoutButton"),
   cancelCheckoutButton: document.querySelector("#cancelCheckoutButton"),
   checkoutTotal: document.querySelector("#checkoutTotal"),
+  paymentMethodSelect: document.querySelector("#paymentMethodSelect"),
   cashInput: document.querySelector("#cashInput"),
   changeValue: document.querySelector("#changeValue"),
   completeSaleButton: document.querySelector("#completeSaleButton"),
+  saleCompleteDialog: document.querySelector("#saleCompleteDialog"),
+  saleCompleteTitle: document.querySelector("#saleCompleteTitle"),
+  saleCompleteSummary: document.querySelector("#saleCompleteSummary"),
+  closeSaleCompleteButton: document.querySelector("#closeSaleCompleteButton"),
+  doneSaleButton: document.querySelector("#doneSaleButton"),
+  printLastReceiptButton: document.querySelector("#printLastReceiptButton"),
+  receiptPrintDialog: document.querySelector("#receiptPrintDialog"),
+  receiptPrintTitle: document.querySelector("#receiptPrintTitle"),
+  receiptPrintPreview: document.querySelector("#receiptPrintPreview"),
+  closeReceiptPrintButton: document.querySelector("#closeReceiptPrintButton"),
+  closeReceiptPreviewButton: document.querySelector("#closeReceiptPreviewButton"),
+  printReceiptNowButton: document.querySelector("#printReceiptNowButton"),
+  summaryDialog: document.querySelector("#summaryDialog"),
+  summaryButton: document.querySelector("#summaryButton"),
+  closeSummaryButton: document.querySelector("#closeSummaryButton"),
+  summaryGrid: document.querySelector("#summaryGrid"),
+  bestSellerList: document.querySelector("#bestSellerList"),
+  paymentSummaryList: document.querySelector("#paymentSummaryList"),
+  expenseDialog: document.querySelector("#expenseDialog"),
+  expenseButton: document.querySelector("#expenseButton"),
+  closeExpenseButton: document.querySelector("#closeExpenseButton"),
+  cancelExpenseButton: document.querySelector("#cancelExpenseButton"),
+  expenseTabs: document.querySelector("#expenseTabs"),
+  purchaseForm: document.querySelector("#purchaseForm"),
+  purchaseSupplierInput: document.querySelector("#purchaseSupplierInput"),
+  purchaseVoucherInput: document.querySelector("#purchaseVoucherInput"),
+  purchasePaymentInput: document.querySelector("#purchasePaymentInput"),
+  purchaseDateInput: document.querySelector("#purchaseDateInput"),
+  purchaseTimeInput: document.querySelector("#purchaseTimeInput"),
+  purchaseLines: document.querySelector("#purchaseLines"),
+  addPurchaseLineButton: document.querySelector("#addPurchaseLineButton"),
+  purchaseExtraCostInput: document.querySelector("#purchaseExtraCostInput"),
+  purchaseDiscountInput: document.querySelector("#purchaseDiscountInput"),
+  purchaseNoteInput: document.querySelector("#purchaseNoteInput"),
+  purchaseTotalValue: document.querySelector("#purchaseTotalValue"),
+  purchaseList: document.querySelector("#purchaseList"),
+  simpleExpenseForm: document.querySelector("#simpleExpenseForm"),
+  simpleExpenseTitle: document.querySelector("#simpleExpenseTitle"),
+  simpleExpenseSubtitle: document.querySelector("#simpleExpenseSubtitle"),
+  expensePayeeInput: document.querySelector("#expensePayeeInput"),
+  expenseAmountInput: document.querySelector("#expenseAmountInput"),
+  expensePaymentInput: document.querySelector("#expensePaymentInput"),
+  expenseDateInput: document.querySelector("#expenseDateInput"),
+  expenseTimeInput: document.querySelector("#expenseTimeInput"),
+  expenseNoteInput: document.querySelector("#expenseNoteInput"),
+  cancelSimpleExpenseButton: document.querySelector("#cancelSimpleExpenseButton"),
+  expenseList: document.querySelector("#expenseList"),
   historyDialog: document.querySelector("#historyDialog"),
   historyButton: document.querySelector("#historyButton"),
   closeHistoryButton: document.querySelector("#closeHistoryButton"),
@@ -95,11 +149,8 @@ const els = {
   staffList: document.querySelector("#staffList"),
   loginDialog: document.querySelector("#loginDialog"),
   loginForm: document.querySelector("#loginForm"),
-  staffSelect: document.querySelector("#staffSelect"),
+  staffNameInput: document.querySelector("#staffNameInput"),
   staffPinInput: document.querySelector("#staffPinInput"),
-  signupStaffName: document.querySelector("#signupStaffName"),
-  signupStaffPin: document.querySelector("#signupStaffPin"),
-  signupStaffButton: document.querySelector("#signupStaffButton"),
   manageDialog: document.querySelector("#manageDialog"),
   manageButton: document.querySelector("#manageButton"),
   closeManageButton: document.querySelector("#closeManageButton"),
@@ -160,9 +211,11 @@ async function writeDbRecord(key, value) {
 }
 
 async function hydrateFromLocalDb() {
-  const [products, receipts, settings, staff, collapsed] = await Promise.all([
+  const [products, receipts, purchases, expenses, settings, staff, collapsed] = await Promise.all([
     readDbRecord("pos-products"),
     readDbRecord("pos-receipts"),
+    readDbRecord("pos-purchases"),
+    readDbRecord("pos-expenses"),
     readDbRecord("pos-settings"),
     readDbRecord("pos-staff"),
     readDbRecord("pos-collapsed-categories")
@@ -170,12 +223,16 @@ async function hydrateFromLocalDb() {
 
   if (products) store.products = normalizeProducts(products);
   if (receipts) store.receipts = receipts;
+  if (purchases) store.purchases = purchases;
+  if (expenses) store.expenses = expenses;
   if (settings) store.settings = normalizeSettings(settings);
   if (staff) store.staff = normalizeStaff(staff);
   if (collapsed) store.collapsedCategories = new Set(collapsed);
 
   writeDbRecord("pos-products", store.products);
   writeDbRecord("pos-receipts", store.receipts);
+  writeDbRecord("pos-purchases", store.purchases);
+  writeDbRecord("pos-expenses", store.expenses);
   writeDbRecord("pos-settings", store.settings);
   writeDbRecord("pos-staff", store.staff);
   writeDbRecord("pos-collapsed-categories", [...store.collapsedCategories]);
@@ -187,19 +244,26 @@ function saveSettings() {
 
 function normalizeStaff(staff) {
   if (Array.isArray(staff?.members) && staff.members.length) {
+    const members = staff.members.map((member) => {
+      const pin = String(member.pin || DEFAULT_STAFF_PIN);
+      const isLegacyStarter = member.id === "owner" && member.name === "Owner" && pin === DEFAULT_STAFF_PIN;
+      return {
+        id: isLegacyStarter ? DEFAULT_STAFF_ID : member.id || createId(),
+        name: isLegacyStarter ? "Starter profile" : member.name || "Staff",
+        pin,
+        isDefault: Boolean(member.isDefault || isLegacyStarter || member.id === DEFAULT_STAFF_ID)
+      };
+    });
     return {
-      members: staff.members.map((member) => ({
-        id: member.id || createId(),
-        name: member.name || "Staff",
-        pin: String(member.pin || "1234")
-      }))
+      members
     };
   }
   return {
     members: [{
-      id: "owner",
-      name: "Owner",
-      pin: String(staff?.pin || "1234")
+      id: DEFAULT_STAFF_ID,
+      name: "Starter profile",
+      pin: String(staff?.pin || DEFAULT_STAFF_PIN),
+      isDefault: true
     }]
   };
 }
@@ -289,21 +353,18 @@ function getCurrentStaff() {
   return store.staff.members.find((member) => member.id === id) || null;
 }
 
-function renderStaffControls() {
-  els.staffSelect.innerHTML = "";
-  store.staff.members.forEach((member) => {
-    const option = document.createElement("option");
-    option.value = member.id;
-    option.textContent = member.name;
-    els.staffSelect.append(option);
-  });
+function renderStaffBadge() {
+  const staff = getCurrentStaff();
+  els.currentStaffBadge.textContent = staff ? staff.name : "Locked";
+}
 
+function renderStaffControls() {
   els.staffList.innerHTML = "";
   store.staff.members.forEach((member) => {
     const row = document.createElement("div");
     row.className = "staff-list-item";
     row.innerHTML = `
-      <span>${escapeHtml(member.name)}</span>
+      <span>${escapeHtml(member.name)}${member.isDefault ? " <small>default PIN 1234</small>" : ""}</span>
       <button class="link-action danger" type="button">delete</button>
     `;
     row.querySelector("button").addEventListener("click", () => deleteStaff(member.id));
@@ -318,7 +379,11 @@ function addStaff(name, pin) {
     showToast("Staff name and 4 digit PIN required");
     return false;
   }
-  store.staff.members.push({ id: createId(), name: cleanName, pin: cleanPin });
+  if (store.staff.members.some((member) => member.pin === cleanPin)) {
+    showToast("Choose a different PIN for each staff member");
+    return false;
+  }
+  store.staff.members.push({ id: createId(), name: cleanName, pin: cleanPin, isDefault: false });
   writeStorage("pos-staff", store.staff);
   renderStaffControls();
   showToast("Staff added");
@@ -334,6 +399,7 @@ function deleteStaff(id) {
   writeStorage("pos-staff", store.staff);
   if (sessionStorage.getItem(STAFF_SESSION_KEY) === id) {
     sessionStorage.removeItem(STAFF_SESSION_KEY);
+    renderStaffBadge();
     requireStaffLogin();
   }
   renderStaffControls();
@@ -385,6 +451,40 @@ function toCents(value) {
 
 function normalizeBarcode(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeStaffName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getPaymentLabel(method) {
+  return {
+    cash: "Cash",
+    card: "Card",
+    kpay: "KPay",
+    wavepay: "WavePay",
+    bank: "Bank transfer"
+  }[method] || "Cash";
+}
+
+function getExpenseCategoryLabel(category) {
+  return {
+    utility: "Utility bill",
+    tax: "Tax/fees",
+    other: "Other expense"
+  }[category] || "Expense";
+}
+
+function isToday(value) {
+  const date = new Date(value);
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+}
+
+function getActiveReceipts(receipts = store.receipts) {
+  return receipts.filter((receipt) => !receipt.voidedAt);
 }
 
 function renderCategories() {
@@ -500,50 +600,430 @@ function renderReceipts() {
 
   store.receipts.slice().reverse().forEach((receipt) => {
     const node = document.createElement("article");
-    node.className = "receipt";
+    node.className = `receipt${receipt.voidedAt ? " is-voided" : ""}`;
     node.innerHTML = `
       <div class="receipt-head">
         <div>
-          <strong>${receipt.number}</strong>
+          <strong>${receipt.number}${receipt.voidedAt ? " - VOIDED" : ""}</strong>
           <div>${new Date(receipt.createdAt).toLocaleString()}</div>
           <div>${escapeHtml(receipt.staffName || "Staff")}</div>
+          <div>${getPaymentLabel(receipt.paymentMethod)}${receipt.voidedAt ? ` - Voided ${new Date(receipt.voidedAt).toLocaleString()}` : ""}</div>
         </div>
         <div class="receipt-numbers">
           <strong>${money.format(receipt.total)}</strong>
-          <span>Profit ${money.format(receipt.profit || 0)}</span>
+          <span>${receipt.voidedAt ? "Refunded" : `Profit ${money.format(receipt.profit || 0)}`}</span>
         </div>
       </div>
       <ol class="receipt-items">
         ${receipt.lines.map((line) => `<li>${escapeHtml(line.name)} x ${line.quantity} - ${money.format(line.lineTotal)} profit ${money.format(line.lineProfit || 0)}</li>`).join("")}
       </ol>
-      <button class="text-button receipt-print" type="button">Print receipt</button>
+      <div class="receipt-actions">
+        <button class="text-button receipt-print" type="button">Print receipt</button>
+        ${receipt.voidedAt ? "" : `<button class="text-button danger receipt-void" type="button">Void/refund</button>`}
+      </div>
     `;
     node.querySelector(".receipt-print").addEventListener("click", () => printReceipt(receipt));
+    node.querySelector(".receipt-void")?.addEventListener("click", () => voidReceipt(receipt.number));
     els.receiptList.append(node);
   });
 }
 
 function printReceipt(receipt) {
-  const lines = receipt.lines.map((line) => `${line.name} x ${line.quantity} ${money.format(line.lineTotal)}`).join("<br>");
-  const win = window.open("", "_blank", "width=360,height=640");
-  if (!win) {
-    showToast("Allow popups to print receipts");
+  const lines = receipt.lines.map((line) => `<div>${escapeHtml(line.name)} x ${line.quantity} <strong>${money.format(line.lineTotal)}</strong></div>`).join("");
+  store.printingReceipt = receipt;
+  els.receiptPrintTitle.textContent = receipt.number;
+  els.receiptPrintPreview.innerHTML = `
+      <h2>Counterpoint</h2>
+      <p>${receipt.number}${receipt.voidedAt ? " - VOIDED" : ""}<br>${new Date(receipt.createdAt).toLocaleString()}<br>Staff: ${receipt.staffName || "Staff"}<br>Payment: ${getPaymentLabel(receipt.paymentMethod)}</p>
+      <hr>
+      <div>${lines}</div>
+      <hr>
+      <p>Subtotal ${money.format(receipt.subtotal)}<br>Tax ${money.format(receipt.tax)}<br><strong>Total ${money.format(receipt.total)}</strong><br>Cash ${money.format(receipt.cash || 0)}<br>Change ${money.format(receipt.change || 0)}</p>
+      ${receipt.voidedAt ? `<hr><p>Voided ${new Date(receipt.voidedAt).toLocaleString()}</p>` : ""}
+  `;
+  if (els.saleCompleteDialog.open) els.saleCompleteDialog.close();
+  if (els.historyDialog.open) els.historyDialog.close();
+  els.receiptPrintDialog.showModal();
+}
+
+function showSaleComplete(receipt) {
+  store.lastReceipt = receipt;
+  els.saleCompleteTitle.textContent = `${receipt.number} saved`;
+  els.saleCompleteSummary.innerHTML = `
+    <div><span>Total</span><strong>${money.format(receipt.total)}</strong></div>
+    <div><span>Cash received</span><strong>${money.format(receipt.cash || 0)}</strong></div>
+    <div><span>Change due</span><strong>${money.format(receipt.change || 0)}</strong></div>
+  `;
+  els.saleCompleteDialog.showModal();
+}
+
+function voidReceipt(receiptNumber) {
+  const receipt = store.receipts.find((item) => item.number === receiptNumber);
+  if (!receipt || receipt.voidedAt) return;
+  const ok = window.confirm(`Void and refund ${receipt.number}? Stock will be returned.`);
+  if (!ok) return;
+
+  receipt.voidedAt = new Date().toISOString();
+  const staff = getCurrentStaff();
+  receipt.voidedBy = staff?.name || "Staff";
+  receipt.lines.forEach((line) => {
+    const product = store.products.find((item) => item.id === line.id);
+    if (product) product.stock = Number(product.stock || 0) + Number(line.quantity || 0);
+  });
+
+  writeStorage("pos-products", store.products);
+  writeStorage("pos-receipts", store.receipts);
+  renderReceipts();
+  renderInventory();
+  renderCart();
+  showToast(`${receipt.number} voided and stock returned`);
+}
+
+function renderSummary() {
+  const todaysReceipts = getActiveReceipts().filter((receipt) => isToday(receipt.createdAt));
+  const todaysPurchases = store.purchases.filter((purchase) => isToday(purchase.createdAt));
+  const todaysExpenses = store.expenses.filter((expense) => isToday(expense.createdAt));
+  const purchaseSpend = todaysPurchases.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+  const otherSpend = todaysExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const totals = todaysReceipts.reduce((acc, receipt) => {
+    acc.sales += Number(receipt.total || 0);
+    acc.profit += Number(receipt.profit || 0);
+    acc.orders += 1;
+    acc.items += receipt.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+    return acc;
+  }, { sales: 0, profit: 0, orders: 0, items: 0 });
+
+  els.summaryGrid.innerHTML = `
+    <article><span>Sales</span><strong>${money.format(totals.sales)}</strong></article>
+    <article><span>Profit</span><strong>${money.format(totals.profit)}</strong></article>
+    <article><span>Purchases</span><strong>${money.format(purchaseSpend)}</strong></article>
+    <article><span>Other expenses</span><strong>${money.format(otherSpend)}</strong></article>
+    <article><span>Cash after spending</span><strong>${money.format(totals.sales - purchaseSpend - otherSpend)}</strong></article>
+    <article><span>Orders</span><strong>${totals.orders}</strong></article>
+    <article><span>Items sold</span><strong>${totals.items}</strong></article>
+  `;
+
+  const products = new Map();
+  todaysReceipts.forEach((receipt) => {
+    receipt.lines.forEach((line) => {
+      const current = products.get(line.name) || { quantity: 0, total: 0 };
+      current.quantity += Number(line.quantity || 0);
+      current.total += Number(line.lineTotal || 0);
+      products.set(line.name, current);
+    });
+  });
+  const bestSellers = [...products.entries()]
+    .sort((a, b) => b[1].quantity - a[1].quantity)
+    .slice(0, 5);
+  els.bestSellerList.innerHTML = bestSellers.length
+    ? bestSellers.map(([name, item]) => `<div><span>${escapeHtml(name)} x ${item.quantity}</span><strong>${money.format(item.total)}</strong></div>`).join("")
+    : `<div class="empty-state">No sales today.</div>`;
+
+  const payments = new Map();
+  todaysReceipts.forEach((receipt) => {
+    const method = receipt.paymentMethod || "cash";
+    payments.set(method, (payments.get(method) || 0) + Number(receipt.total || 0));
+  });
+  els.paymentSummaryList.innerHTML = payments.size
+    ? [...payments.entries()].map(([method, total]) => `<div><span>${getPaymentLabel(method)}</span><strong>${money.format(total)}</strong></div>`).join("")
+    : `<div class="empty-state">No payments today.</div>`;
+}
+
+function formatDateInput(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
+function formatTimeInput(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(11, 16);
+}
+
+function addPurchaseLine(line = {}) {
+  const row = document.createElement("div");
+  row.className = "voucher-line";
+  row.innerHTML = `
+    <div class="section-head voucher-line-head">
+      <div>
+        <h3>Add product</h3>
+        <span>Create a new item</span>
+      </div>
+      <button class="link-action danger" type="button">delete</button>
+    </div>
+    <div class="product-form-grid">
+      <label class="field-stack">Name<input data-field="name" value="${escapeHtml(line.name || "")}" required /></label>
+      <label class="field-stack">Category<input data-field="category" value="${escapeHtml(line.category || "")}" required /></label>
+      <label class="field-stack">Buying price<input data-field="unitCost" type="number" min="0" step="0.01" inputmode="decimal" value="${line.unitCost || ""}" required /></label>
+      <label class="field-stack">Selling price<input data-field="price" type="number" min="0" step="0.01" inputmode="decimal" value="${line.price || ""}" required /></label>
+      <label class="field-stack">Quantity bought<input data-field="quantity" type="number" min="1" step="1" inputmode="numeric" value="${line.quantity || 1}" required /></label>
+      <label class="field-stack">SKU<input data-field="sku" value="${escapeHtml(line.sku || "")}" required /></label>
+      <label class="field-stack">Barcode<input data-field="barcode" inputmode="numeric" value="${escapeHtml(line.barcode || "")}" /></label>
+      <label class="field-stack">Product image<input data-field="imageFile" type="file" accept="image/*" capture="environment" /></label>
+    </div>
+    <div class="voucher-line-actions">
+      <strong data-field="lineTotal">${money.format(0)}</strong>
+    </div>
+  `;
+  row.querySelectorAll("input").forEach((input) => input.addEventListener("input", updatePurchaseTotals));
+  row.querySelector("button").addEventListener("click", () => {
+    row.remove();
+    if (!els.purchaseLines.children.length) addPurchaseLine();
+    updatePurchaseTotals();
+  });
+  els.purchaseLines.append(row);
+  updatePurchaseTotals();
+}
+
+function getPurchaseLineDrafts() {
+  return [...els.purchaseLines.querySelectorAll(".voucher-line")].map((row) => {
+    const field = (name) => row.querySelector(`[data-field="${name}"]`);
+    const name = field("name").value.trim();
+    const category = field("category").value.trim();
+    const sku = field("sku").value.trim();
+    const quantity = Math.max(Number(row.querySelector('[data-field="quantity"]').value || 0), 0);
+    const unitCost = Math.max(Number(row.querySelector('[data-field="unitCost"]').value || 0), 0);
+    const price = Math.max(Number(row.querySelector('[data-field="price"]').value || 0), 0);
+    return {
+      row,
+      name,
+      category,
+      quantity,
+      unitCost,
+      price,
+      sku,
+      barcode: field("barcode").value.trim(),
+      imageInput: field("imageFile"),
+      lineTotal: quantity * unitCost
+    };
+  }).filter((line) => line.name || line.category || line.sku || line.quantity > 0 || line.unitCost > 0 || line.price > 0);
+}
+
+function updatePurchaseTotals() {
+  const lines = getPurchaseLineDrafts().filter((line) => line.name && line.category && line.sku && line.quantity > 0);
+  const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const extraCost = Math.max(Number(els.purchaseExtraCostInput.value || 0), 0);
+  const discount = Math.max(Number(els.purchaseDiscountInput.value || 0), 0);
+  const total = Math.max(subtotal + extraCost - discount, 0);
+  els.purchaseLines.querySelectorAll(".voucher-line").forEach((row) => {
+    const quantity = Number(row.querySelector('[data-field="quantity"]').value || 0);
+    const unitCost = Number(row.querySelector('[data-field="unitCost"]').value || 0);
+    row.querySelector('[data-field="lineTotal"]').textContent = money.format(quantity * unitCost);
+  });
+  els.purchaseTotalValue.textContent = money.format(total);
+  return { lines, subtotal, extraCost, discount, total };
+}
+
+function openExpenseDialog() {
+  store.activeExpenseTab = "";
+  els.purchaseDateInput.value = formatDateInput();
+  els.purchaseTimeInput.value = formatTimeInput();
+  els.expenseDateInput.value = formatDateInput();
+  els.expenseTimeInput.value = formatTimeInput();
+  if (!els.purchaseLines.children.length) addPurchaseLine();
+  renderExpenseTab();
+  updatePurchaseTotals();
+  renderPurchases();
+  renderExpenses();
+  els.expenseDialog.showModal();
+}
+
+function renderExpenseTab() {
+  els.expenseTabs.classList.toggle("is-hidden", Boolean(store.activeExpenseTab));
+  els.expenseTabs.querySelectorAll("button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.expenseTab === store.activeExpenseTab);
+  });
+  document.querySelectorAll("[data-expense-panel]").forEach((panel) => {
+    const panelType = panel.dataset.expensePanel;
+    const isActive = !store.activeExpenseTab
+      ? false
+      : store.activeExpenseTab === "voucher"
+      ? panelType === "voucher"
+      : panelType === "simple";
+    panel.classList.toggle("active", isActive);
+  });
+  if (store.activeExpenseTab && store.activeExpenseTab !== "voucher") {
+    els.simpleExpenseTitle.textContent = getExpenseCategoryLabel(store.activeExpenseTab);
+    els.simpleExpenseSubtitle.textContent = store.activeExpenseTab === "utility"
+      ? "Record utilities without changing stock"
+      : store.activeExpenseTab === "tax"
+        ? "Record tax, license, and government fees"
+        : "Record other money out";
+  }
+}
+
+function saveSimpleExpense(event) {
+  event.preventDefault();
+  const payee = els.expensePayeeInput.value.trim();
+  const amount = Math.max(Number(els.expenseAmountInput.value || 0), 0);
+  if (!payee || amount <= 0) {
+    showToast("Payee and amount are required");
     return;
   }
-  win.document.write(`
-    <title>${receipt.number}</title>
-    <body style="font-family:monospace;padding:16px;max-width:320px">
-      <h2>Counterpoint</h2>
-      <p>${receipt.number}<br>${new Date(receipt.createdAt).toLocaleString()}<br>Staff: ${receipt.staffName || "Staff"}</p>
-      <hr>
-      <p>${lines}</p>
-      <hr>
-      <p>Subtotal ${money.format(receipt.subtotal)}<br>Tax ${money.format(receipt.tax)}<br><strong>Total ${money.format(receipt.total)}</strong></p>
-    </body>
-  `);
-  win.document.close();
-  win.focus();
-  win.print();
+  const createdAt = els.expenseDateInput.value
+    ? new Date(`${els.expenseDateInput.value}T${els.expenseTimeInput.value || "00:00"}`).toISOString()
+    : new Date().toISOString();
+  const expense = {
+    id: createId(),
+    number: `E-${String(store.expenses.length + 1).padStart(5, "0")}`,
+    category: store.activeExpenseTab === "voucher" ? "other" : store.activeExpenseTab,
+    payee,
+    amount,
+    paymentMethod: els.expensePaymentInput.value,
+    createdAt,
+    note: els.expenseNoteInput.value.trim()
+  };
+  store.expenses.push(expense);
+  writeStorage("pos-expenses", store.expenses);
+  els.simpleExpenseForm.reset();
+  els.expenseDateInput.value = formatDateInput();
+  els.expenseTimeInput.value = formatTimeInput();
+  renderExpenses();
+  showToast(`${expense.number} saved`);
+}
+
+function renderExpenses() {
+  const visible = store.activeExpenseTab === "voucher"
+    ? store.expenses
+    : store.expenses.filter((expense) => expense.category === store.activeExpenseTab);
+  els.expenseList.innerHTML = "";
+  if (!visible.length) {
+    els.expenseList.innerHTML = `<div class="empty-state">Saved bills and expenses will appear here.</div>`;
+    return;
+  }
+  visible.slice().reverse().forEach((expense) => {
+    const node = document.createElement("article");
+    node.className = "purchase-card";
+    node.innerHTML = `
+      <div class="receipt-head">
+        <div>
+          <strong>${expense.number} / ${getExpenseCategoryLabel(expense.category)}</strong>
+          <div>${escapeHtml(expense.payee)}</div>
+          <div>${new Date(expense.createdAt).toLocaleString()} - ${getPaymentLabel(expense.paymentMethod)}</div>
+          ${expense.note ? `<div>${escapeHtml(expense.note)}</div>` : ""}
+        </div>
+        <div class="receipt-numbers">
+          <strong>${money.format(expense.amount)}</strong>
+        </div>
+      </div>
+    `;
+    els.expenseList.append(node);
+  });
+}
+
+async function savePurchase(event) {
+  event.preventDefault();
+  const supplier = els.purchaseSupplierInput.value.trim();
+  const totals = updatePurchaseTotals();
+  if (!supplier || !totals.lines.length) {
+    showToast("Supplier and at least one complete product are required");
+    return;
+  }
+  const incompleteLine = getPurchaseLineDrafts().find((line) =>
+    !line.name || !line.category || !line.sku || line.quantity <= 0 || line.unitCost <= 0 || line.price <= 0
+  );
+  if (incompleteLine) {
+    showToast("Complete name, category, prices, quantity, and SKU");
+    return;
+  }
+  const skus = totals.lines.map((line) => line.sku.toLowerCase());
+  const repeatedSku = totals.lines.find((line, index) => skus.indexOf(line.sku.toLowerCase()) !== index);
+  if (repeatedSku) {
+    showToast(`${repeatedSku.sku} is repeated in this voucher`);
+    return;
+  }
+  const createdAt = els.purchaseDateInput.value
+    ? new Date(`${els.purchaseDateInput.value}T${els.purchaseTimeInput.value || "00:00"}`).toISOString()
+    : new Date().toISOString();
+  const productLines = await Promise.all(totals.lines.map(async (line) => {
+    const nextImage = await getImageFromInput(line.imageInput);
+    let product = store.products.find((item) => item.sku.toLowerCase() === line.sku.toLowerCase());
+    if (!product && line.barcode) {
+      product = store.products.find((item) => String(item.barcode || "").trim() === line.barcode);
+    }
+    if (product) {
+      product.cost = line.unitCost;
+      product.price = line.price;
+      product.purchased = Number(product.purchased || 0) + line.quantity;
+      product.stock = Number(product.stock || 0) + line.quantity;
+      product.barcode = line.barcode || product.barcode;
+      product.image = nextImage || product.image;
+    } else {
+      product = {
+        id: createId(),
+        name: line.name,
+        category: line.category,
+        cost: line.unitCost,
+        price: line.price,
+        purchased: line.quantity,
+        stock: line.quantity,
+        sku: line.sku,
+        barcode: line.barcode,
+        image: nextImage
+      };
+      store.products.push(product);
+    }
+    return {
+      productId: product.id,
+      name: product.name,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      lineTotal: line.lineTotal
+    };
+  }));
+  const purchase = {
+    id: createId(),
+    number: `P-${String(store.purchases.length + 1).padStart(5, "0")}`,
+    supplier,
+    voucherNumber: els.purchaseVoucherInput.value.trim(),
+    paymentMethod: els.purchasePaymentInput.value,
+    createdAt,
+    lines: productLines,
+    subtotal: totals.subtotal,
+    extraCost: totals.extraCost,
+    discount: totals.discount,
+    total: totals.total,
+    note: els.purchaseNoteInput.value.trim()
+  };
+
+  store.purchases.push(purchase);
+  writeStorage("pos-products", store.products);
+  writeStorage("pos-purchases", store.purchases);
+  els.purchaseForm.reset();
+  els.purchaseLines.innerHTML = "";
+  addPurchaseLine();
+  renderPurchases();
+  renderInventory();
+  renderProducts();
+  showToast(`${purchase.number} saved and stock updated`);
+}
+
+function renderPurchases() {
+  els.purchaseList.innerHTML = "";
+  if (!store.purchases.length) {
+    els.purchaseList.innerHTML = `<div class="empty-state">Saved supplier vouchers will appear here.</div>`;
+    return;
+  }
+  store.purchases.slice().reverse().forEach((purchase) => {
+    const node = document.createElement("article");
+    node.className = "purchase-card";
+    node.innerHTML = `
+      <div class="receipt-head">
+        <div>
+          <strong>${purchase.number}${purchase.voucherNumber ? ` / ${escapeHtml(purchase.voucherNumber)}` : ""}</strong>
+          <div>${escapeHtml(purchase.supplier)}</div>
+          <div>${new Date(purchase.createdAt).toLocaleString()} - ${getPaymentLabel(purchase.paymentMethod)}</div>
+        </div>
+        <div class="receipt-numbers">
+          <strong>${money.format(purchase.total)}</strong>
+          <span>${purchase.lines.length} ${purchase.lines.length === 1 ? "item" : "items"}</span>
+        </div>
+      </div>
+      <ol class="receipt-items">
+        ${purchase.lines.map((line) => `<li>${escapeHtml(line.name)} x ${line.quantity} @ ${money.format(line.unitCost)}</li>`).join("")}
+      </ol>
+    `;
+    els.purchaseList.append(node);
+  });
 }
 
 function renderInventory() {
@@ -687,6 +1167,7 @@ function toggleCategory(category) {
 }
 
 function render() {
+  renderStaffBadge();
   renderCategories();
   renderProducts();
   renderCart();
@@ -728,7 +1209,9 @@ function clearCart() {
 function openCheckout() {
   const totals = getTotals();
   els.checkoutTotal.textContent = money.format(totals.total);
+  els.paymentMethodSelect.value = "cash";
   els.cashInput.value = (toCents(totals.total) / 100).toFixed(2);
+  els.cashInput.disabled = false;
   updateChange();
   els.checkoutDialog.showModal();
   els.cashInput.select();
@@ -736,7 +1219,12 @@ function openCheckout() {
 
 function updateChange() {
   const totalCents = toCents(getTotals().total);
-  const cashCents = toCents(els.cashInput.value);
+  const isCash = els.paymentMethodSelect.value === "cash";
+  if (!isCash) {
+    els.cashInput.value = (totalCents / 100).toFixed(2);
+  }
+  els.cashInput.disabled = !isCash;
+  const cashCents = isCash ? toCents(els.cashInput.value) : totalCents;
   const changeCents = Math.max(cashCents - totalCents, 0);
   els.changeValue.textContent = money.format(changeCents / 100);
   els.completeSaleButton.disabled = cashCents < totalCents;
@@ -745,6 +1233,9 @@ function updateChange() {
 function completeSale() {
   const totals = getTotals();
   const staff = getCurrentStaff();
+  const paymentMethod = els.paymentMethodSelect.value;
+  const cash = paymentMethod === "cash" ? Number(els.cashInput.value || 0) : totals.total;
+  const change = Math.max(cash - totals.total, 0);
   const receipt = {
     number: `S-${String(store.receipts.length + 1).padStart(5, "0")}`,
     createdAt: new Date().toISOString(),
@@ -757,7 +1248,9 @@ function completeSale() {
     tax: totals.tax,
     profit: totals.profit,
     total: totals.total,
-    cash: Number(els.cashInput.value || 0)
+    paymentMethod,
+    cash,
+    change
   };
   store.receipts.push(receipt);
   receipt.lines.forEach((line) => {
@@ -768,6 +1261,7 @@ function completeSale() {
   writeStorage("pos-receipts", store.receipts);
   clearCart();
   els.checkoutDialog.close();
+  showSaleComplete(receipt);
   showToast(`Sale ${receipt.number} saved`);
 }
 
@@ -917,6 +1411,8 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     products: store.products,
     receipts: store.receipts,
+    purchases: store.purchases,
+    expenses: store.expenses,
     settings: store.settings,
     staff: store.staff,
     collapsedCategories: [...store.collapsedCategories]
@@ -938,11 +1434,15 @@ function importBackup(file) {
       const payload = JSON.parse(reader.result);
       store.products = normalizeProducts(payload.products || []);
       store.receipts = payload.receipts || [];
+      store.purchases = payload.purchases || [];
+      store.expenses = payload.expenses || [];
       store.settings = normalizeSettings(payload.settings || store.settings);
       store.staff = normalizeStaff(payload.staff || store.staff);
       store.collapsedCategories = new Set(payload.collapsedCategories || []);
       writeStorage("pos-products", store.products);
       writeStorage("pos-receipts", store.receipts);
+      writeStorage("pos-purchases", store.purchases);
+      writeStorage("pos-expenses", store.expenses);
       writeStorage("pos-settings", store.settings);
       writeStorage("pos-staff", store.staff);
       writeStorage("pos-collapsed-categories", [...store.collapsedCategories]);
@@ -1004,7 +1504,7 @@ function requireStaffLogin() {
   if (getCurrentStaff()) return;
   renderStaffControls();
   els.loginDialog.showModal();
-  els.staffPinInput.focus();
+  els.staffNameInput.focus();
 }
 
 function toggleMenu(forceOpen) {
@@ -1053,14 +1553,64 @@ els.clearCartButton.addEventListener("click", clearCart);
 els.checkoutButton.addEventListener("click", openCheckout);
 els.closeCheckoutButton.addEventListener("click", () => els.checkoutDialog.close());
 els.cancelCheckoutButton.addEventListener("click", () => els.checkoutDialog.close());
+els.paymentMethodSelect.addEventListener("change", updateChange);
 els.cashInput.addEventListener("input", updateChange);
 els.checkoutForm.addEventListener("submit", (event) => {
   event.preventDefault();
   completeSale();
 });
+els.closeSaleCompleteButton.addEventListener("click", () => els.saleCompleteDialog.close());
+els.doneSaleButton.addEventListener("click", () => els.saleCompleteDialog.close());
+els.printLastReceiptButton.addEventListener("click", () => {
+  if (store.lastReceipt) printReceipt(store.lastReceipt);
+});
+els.closeReceiptPrintButton.addEventListener("click", () => els.receiptPrintDialog.close());
+els.closeReceiptPreviewButton.addEventListener("click", () => els.receiptPrintDialog.close());
+els.printReceiptNowButton.addEventListener("click", () => {
+  window.print();
+});
 els.menuButton.addEventListener("click", (event) => {
   event.stopPropagation();
   toggleMenu();
+});
+els.summaryButton.addEventListener("click", () => {
+  toggleMenu(false);
+  renderSummary();
+  els.summaryDialog.showModal();
+});
+els.closeSummaryButton.addEventListener("click", () => els.summaryDialog.close());
+els.expenseButton.addEventListener("click", () => {
+  toggleMenu(false);
+  openExpenseDialog();
+});
+els.closeExpenseButton.addEventListener("click", () => {
+  if (store.activeExpenseTab) {
+    store.activeExpenseTab = "";
+    renderExpenseTab();
+    return;
+  }
+  els.expenseDialog.close();
+});
+els.cancelExpenseButton.addEventListener("click", () => {
+  store.activeExpenseTab = "";
+  renderExpenseTab();
+});
+els.purchaseForm.addEventListener("submit", savePurchase);
+els.addPurchaseLineButton.addEventListener("click", () => addPurchaseLine());
+[els.purchaseExtraCostInput, els.purchaseDiscountInput].forEach((input) => {
+  input.addEventListener("input", updatePurchaseTotals);
+});
+els.expenseTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-expense-tab]");
+  if (!button) return;
+  store.activeExpenseTab = button.dataset.expenseTab;
+  renderExpenseTab();
+  renderExpenses();
+});
+els.simpleExpenseForm.addEventListener("submit", saveSimpleExpense);
+els.cancelSimpleExpenseButton.addEventListener("click", () => {
+  store.activeExpenseTab = "";
+  renderExpenseTab();
 });
 els.historyButton.addEventListener("click", () => {
   toggleMenu(false);
@@ -1153,23 +1703,26 @@ els.saveStaffPinButton.addEventListener("click", () => {
     els.staffPinSetting.value = "";
   }
 });
-els.signupStaffButton.addEventListener("click", () => {
-  if (addStaff(els.signupStaffName.value, els.signupStaffPin.value)) {
-    els.signupStaffName.value = "";
-    els.signupStaffPin.value = "";
-  }
-});
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  const enteredName = normalizeStaffName(els.staffNameInput.value);
   const enteredPin = els.staffPinInput.value.trim();
-  const selectedStaff = store.staff.members.find((member) => member.id === els.staffSelect.value);
-  if (selectedStaff && (enteredPin === selectedStaff.pin || enteredPin === "1234")) {
+  if (!enteredName || !enteredPin) {
+    showToast("Staff name and PIN are required");
+    return;
+  }
+  const selectedStaff = store.staff.members.find((member) => (
+    normalizeStaffName(member.name) === enteredName && member.pin === enteredPin
+  ));
+  if (selectedStaff) {
     sessionStorage.setItem(STAFF_SESSION_KEY, selectedStaff.id);
+    els.staffNameInput.value = "";
     els.staffPinInput.value = "";
     els.loginDialog.close();
+    renderStaffBadge();
     showToast(`Unlocked as ${selectedStaff.name}`);
   } else {
-    showToast("Wrong PIN");
+    showToast("Wrong staff name or PIN");
   }
 });
 document.addEventListener("keydown", (event) => {

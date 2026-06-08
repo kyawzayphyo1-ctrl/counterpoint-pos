@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#233142" />
     <title>Counterpoint PoS</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=24" />
   </head>
   <body>
     <div class="app-shell">
@@ -16,6 +16,7 @@
           <h1>Sales</h1>
         </div>
         <div class="top-actions">
+          <div class="staff-badge" id="currentStaffBadge">Locked</div>
           <div class="menu-wrap">
             <button class="icon-button menu-button" id="menuButton" title="Menu" aria-label="Menu" aria-expanded="false">
               <span></span>
@@ -27,6 +28,8 @@
       </header>
 
       <nav class="app-menu" id="appMenu" aria-label="Main menu">
+        <button type="button" id="summaryButton">Today summary</button>
+        <button type="button" id="expenseButton">Expense</button>
         <button type="button" id="historyButton">Sale history</button>
         <button type="button" id="categoriesButton">Categories</button>
         <button type="button" id="manageButton">Products</button>
@@ -84,13 +87,24 @@
         </div>
         <div class="checkout-total" id="checkoutTotal">$0.00</div>
         <label class="field-stack">
+          Payment method
+          <select id="paymentMethodSelect">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="kpay">KPay</option>
+            <option value="wavepay">WavePay</option>
+            <option value="bank">Bank transfer</option>
+          </select>
+        </label>
+        <label class="field-stack">
           Cash received
           <input id="cashInput" type="number" min="0" step="0.01" inputmode="decimal" />
         </label>
         <div class="change-due">
-          <span>Change due</span>
+          <span>Change due <small>auto</small></span>
           <strong id="changeValue">$0.00</strong>
         </div>
+        <p class="field-help">Enter the cash received above. Change due is calculated automatically.</p>
         <menu class="modal-actions">
           <button class="text-button" type="button" id="cancelCheckoutButton">Cancel</button>
           <button class="primary-button" id="completeSaleButton" value="default">Complete sale</button>
@@ -98,27 +112,178 @@
       </form>
     </dialog>
 
-    <dialog id="historyDialog" class="modal">
+    <dialog id="saleCompleteDialog" class="modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Sale complete</p>
+            <h2 id="saleCompleteTitle">Receipt saved</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeSaleCompleteButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <div class="sale-complete-summary" id="saleCompleteSummary"></div>
+        <menu class="modal-actions">
+          <button class="text-button" type="button" id="doneSaleButton">New sale</button>
+          <button class="primary-button" type="button" id="printLastReceiptButton">Print receipt</button>
+        </menu>
+      </div>
+    </dialog>
+
+    <dialog id="receiptPrintDialog" class="modal">
+      <div class="modal-card receipt-preview-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Receipt</p>
+            <h2 id="receiptPrintTitle">Print receipt</h2>
+          </div>
+          <button class="icon-button no-print" type="button" id="closeReceiptPrintButton" title="Close" aria-label="Close">X</button>
+        </div>
+        <div class="receipt-preview" id="receiptPrintPreview"></div>
+        <menu class="modal-actions no-print">
+          <button class="text-button" type="button" id="closeReceiptPreviewButton">Close</button>
+          <button class="primary-button" type="button" id="printReceiptNowButton">Print now</button>
+        </menu>
+      </div>
+    </dialog>
+
+    <dialog id="summaryDialog" class="modal page-modal">
+      <div class="modal-card wide summary-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Today</p>
+            <h2>Sales summary</h2>
+          </div>
+          <button class="text-button" type="button" id="closeSummaryButton">Back</button>
+        </div>
+        <div class="summary-grid" id="summaryGrid"></div>
+        <section class="summary-section">
+          <div class="section-head">
+            <h3>Best sellers</h3>
+            <span>Today only</span>
+          </div>
+          <div class="summary-list" id="bestSellerList"></div>
+        </section>
+        <section class="summary-section">
+          <div class="section-head">
+            <h3>Payment methods</h3>
+            <span>Collected today</span>
+          </div>
+          <div class="summary-list" id="paymentSummaryList"></div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="expenseDialog" class="modal page-modal">
+      <div class="modal-card wide expense-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Expense</p>
+            <h2>Expenses</h2>
+          </div>
+          <button class="text-button" type="button" id="closeExpenseButton">Back</button>
+        </div>
+        <div class="expense-tabs" id="expenseTabs" role="tablist" aria-label="Expense categories">
+          <button type="button" data-expense-tab="voucher" data-icon="V"><span class="expense-tab-copy"><strong>Vouchers</strong><small>Stock purchases from suppliers</small></span></button>
+          <button type="button" data-expense-tab="utility" data-icon="U"><span class="expense-tab-copy"><strong>Utility bill</strong><small>Electricity, water, internet</small></span></button>
+          <button type="button" data-expense-tab="tax" data-icon="T"><span class="expense-tab-copy"><strong>Tax/fees</strong><small>Tax, license, and fees</small></span></button>
+          <button type="button" data-expense-tab="other" data-icon="O"><span class="expense-tab-copy"><strong>Other</strong><small>Other money out</small></span></button>
+        </div>
+        <form class="inventory-section expense-panel" id="purchaseForm" data-expense-panel="voucher">
+          <div class="section-head">
+            <h3>Supplier voucher</h3>
+            <span>Buy multiple goods from one supplier</span>
+          </div>
+          <div class="product-form-grid">
+            <label class="field-stack">Supplier<input id="purchaseSupplierInput" required placeholder="Supplier or shop name" /></label>
+            <label class="field-stack">Voucher no.<input id="purchaseVoucherInput" placeholder="Invoice or voucher number" /></label>
+            <label class="field-stack">Payment method<select id="purchasePaymentInput">
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="kpay">KPay</option>
+              <option value="wavepay">WavePay</option>
+              <option value="bank">Bank transfer</option>
+            </select></label>
+            <label class="field-stack">Date<input id="purchaseDateInput" type="date" /></label>
+            <label class="field-stack">Time<input id="purchaseTimeInput" type="time" /></label>
+          </div>
+          <div class="voucher-lines" id="purchaseLines"></div>
+          <button class="text-button" type="button" id="addPurchaseLineButton">Add another product</button>
+          <div class="product-form-grid">
+            <label class="field-stack">Delivery/extra cost<input id="purchaseExtraCostInput" type="number" min="0" step="0.01" value="0" /></label>
+            <label class="field-stack">Discount<input id="purchaseDiscountInput" type="number" min="0" step="0.01" value="0" /></label>
+            <label class="field-stack wide-field">Note<input id="purchaseNoteInput" placeholder="Optional note" /></label>
+          </div>
+          <div class="voucher-total">
+            <span>Voucher total</span>
+            <strong id="purchaseTotalValue">$0.00</strong>
+          </div>
+          <menu class="modal-actions">
+            <button class="text-button" type="button" id="cancelExpenseButton">Close</button>
+            <button class="primary-button" type="submit">Save voucher</button>
+          </menu>
+        </form>
+        <section class="inventory-section expense-panel" data-expense-panel="voucher">
+          <div class="section-head">
+            <h3>Purchase history</h3>
+            <span>Suppliers and vouchers</span>
+          </div>
+          <div class="purchase-list" id="purchaseList"></div>
+        </section>
+        <form class="inventory-section expense-panel" id="simpleExpenseForm" data-expense-panel="simple">
+          <div class="section-head">
+            <h3 id="simpleExpenseTitle">Utility bill</h3>
+            <span id="simpleExpenseSubtitle">Record bills that do not change stock</span>
+          </div>
+          <div class="product-form-grid">
+            <label class="field-stack">Payee / vendor<input id="expensePayeeInput" required placeholder="Electricity company, tax office, etc." /></label>
+            <label class="field-stack">Amount<input id="expenseAmountInput" required type="number" min="0" step="0.01" inputmode="decimal" /></label>
+            <label class="field-stack">Payment method<select id="expensePaymentInput">
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="kpay">KPay</option>
+              <option value="wavepay">WavePay</option>
+              <option value="bank">Bank transfer</option>
+            </select></label>
+            <label class="field-stack">Date<input id="expenseDateInput" type="date" /></label>
+            <label class="field-stack">Time<input id="expenseTimeInput" type="time" /></label>
+            <label class="field-stack wide-field">Note<input id="expenseNoteInput" placeholder="Optional note" /></label>
+          </div>
+          <menu class="modal-actions">
+            <button class="text-button" type="button" id="cancelSimpleExpenseButton">Close</button>
+            <button class="primary-button" type="submit">Save expense</button>
+          </menu>
+        </form>
+        <section class="inventory-section expense-panel" data-expense-panel="simple">
+          <div class="section-head">
+            <h3>Expense history</h3>
+            <span>Bills, taxes, and other costs</span>
+          </div>
+          <div class="purchase-list" id="expenseList"></div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="historyDialog" class="modal page-modal">
       <div class="modal-card wide">
         <div class="modal-head">
           <div>
             <p class="eyebrow">Receipts</p>
             <h2>Sales history</h2>
           </div>
-          <button class="icon-button" id="closeHistoryButton" title="Close" aria-label="Close">X</button>
+          <button class="text-button" id="closeHistoryButton">Back</button>
         </div>
         <div class="receipt-list" id="receiptList"></div>
       </div>
     </dialog>
 
-    <dialog id="manageDialog" class="modal">
+    <dialog id="manageDialog" class="modal page-modal">
       <div class="modal-card wide inventory-card">
         <div class="modal-head">
           <div>
             <p class="eyebrow">Inventory</p>
             <h2>Categories & products</h2>
           </div>
-          <button class="icon-button" type="button" id="closeManageButton" title="Close" aria-label="Close">X</button>
+          <button class="text-button" type="button" id="closeManageButton">Back</button>
         </div>
         <form class="inventory-section" id="productForm" aria-label="Add product">
           <div class="section-head">
@@ -152,14 +317,14 @@
       </div>
     </dialog>
 
-    <dialog id="categoriesDialog" class="modal">
+    <dialog id="categoriesDialog" class="modal page-modal">
       <div class="modal-card wide manager-card">
         <div class="modal-head">
           <div>
             <p class="eyebrow">Categories</p>
             <h2>Category pages</h2>
           </div>
-          <button class="icon-button" type="button" id="closeCategoriesButton" title="Close" aria-label="Close">X</button>
+          <button class="text-button" type="button" id="closeCategoriesButton">Back</button>
         </div>
         <section class="inventory-section" aria-label="Category pages">
           <div class="section-head">
@@ -174,14 +339,14 @@
       </div>
     </dialog>
 
-    <dialog id="settingsDialog" class="modal">
+    <dialog id="settingsDialog" class="modal page-modal">
       <div class="modal-card wide settings-card">
         <div class="modal-head">
           <div>
             <p class="eyebrow">Settings</p>
             <h2>App settings</h2>
           </div>
-          <button class="icon-button" type="button" id="closeSettingsButton" title="Close" aria-label="Close">X</button>
+          <button class="text-button" type="button" id="closeSettingsButton">Back</button>
         </div>
         <section class="settings-list">
           <div class="setting-row printer-setting">
@@ -259,23 +424,17 @@
       <form class="modal-card" id="loginForm">
         <div class="modal-head">
           <div>
-            <p class="eyebrow">Staff</p>
+            <p class="eyebrow">Log in</p>
             <h2>Staff login</h2>
           </div>
         </div>
-        <label class="field-stack">Staff member<select id="staffSelect"></select></label>
-        <label class="field-stack">PIN<input id="staffPinInput" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Default 1234" /></label>
-        <section class="signup-panel">
-          <h3>Add staff</h3>
-          <label class="field-stack">Name<input id="signupStaffName" placeholder="Staff name" /></label>
-          <label class="field-stack">PIN<input id="signupStaffPin" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" /></label>
-          <button class="text-button" type="button" id="signupStaffButton">Create staff</button>
-        </section>
-        <button class="primary-button" id="loginButton" type="submit">Unlock</button>
+        <label class="field-stack">Staff name<input id="staffNameInput" required autocomplete="username" placeholder="Staff name" /></label>
+        <label class="field-stack">PIN<input id="staffPinInput" required type="password" inputmode="numeric" autocomplete="current-password" maxlength="8" placeholder="PIN" /></label>
+        <button class="primary-button" id="loginButton" type="submit">Log in</button>
       </form>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js"></script>
+    <script src="./app.js?v=24"></script>
   </body>
 </html>
