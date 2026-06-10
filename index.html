@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#233142" />
     <title>Counterpoint PoS</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=42" />
+    <link rel="stylesheet" href="./styles.css?v=43" />
   </head>
   <body>
     <div class="app-shell">
@@ -495,6 +495,22 @@
           </div>
           <div class="setting-row">
             <div>
+              <h3>Staff login</h3>
+              <p>Add staff members and choose what they can access</p>
+            </div>
+            <div class="staff-pin-row">
+              <input id="staffNameSetting" placeholder="Staff name" />
+              <input id="staffPinSetting" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
+              <select id="staffRoleSetting">
+                <option value="staff">Staff</option>
+                <option value="owner">Owner</option>
+              </select>
+              <button class="primary-button" type="button" id="saveStaffPinButton">Add staff</button>
+              <div class="staff-list" id="staffList"></div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
               <h3>Backup/export</h3>
               <p>Export all products, receipts, categories, and settings</p>
             </div>
@@ -515,22 +531,6 @@
               <button class="text-button" type="button" data-report-export="products">Products CSV</button>
               <button class="text-button" type="button" data-report-export="closings">Closing CSV</button>
               <button class="text-button" type="button" data-report-export="adjustments">Adjustments CSV</button>
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <h3>Staff login</h3>
-              <p>Add staff members and choose what they can access</p>
-            </div>
-            <div class="staff-pin-row">
-              <input id="staffNameSetting" placeholder="Staff name" />
-              <input id="staffPinSetting" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
-              <select id="staffRoleSetting">
-                <option value="staff">Staff</option>
-                <option value="owner">Owner</option>
-              </select>
-              <button class="text-button" type="button" id="saveStaffPinButton">Add staff</button>
-              <div class="staff-list" id="staffList"></div>
             </div>
           </div>
         </section>
@@ -555,6 +555,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=42"></script>
+    <script src="./app.js?v=43"></script>
   </body>
 </html>
