@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#233142" />
     <title>Counterpoint PoS</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=34" />
+    <link rel="stylesheet" href="./styles.css?v=42" />
   </head>
   <body>
     <div class="app-shell">
@@ -29,6 +29,7 @@
 
       <nav class="app-menu" id="appMenu" aria-label="Main menu">
         <button type="button" id="summaryButton">Summary</button>
+        <button type="button" id="closingButton">Daily closing <span class="menu-alert-badge is-hidden" id="closingAlertBadge"></span></button>
         <button type="button" id="expenseButton">Expense</button>
         <button type="button" id="historyButton">Sale history</button>
         <button type="button" id="categoriesButton">Categories</button>
@@ -185,6 +186,48 @@
       </div>
     </dialog>
 
+    <dialog id="closingDialog" class="modal page-modal">
+      <div class="modal-card wide closing-card">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Cash drawer</p>
+            <h2>Daily closing</h2>
+          </div>
+          <button class="text-button" type="button" id="closeClosingButton">Back</button>
+        </div>
+        <section class="summary-section daily-closing-section" id="dailyClosingSection">
+          <div class="section-head">
+            <h3>Daily closing</h3>
+            <span id="dailyClosingRange">Selected day</span>
+          </div>
+          <label class="field-stack closing-date-field">Date<input id="closingDayInput" type="date" /></label>
+          <div class="closing-warning is-hidden" id="closingWarning"></div>
+          <div class="closing-status" id="dailyClosingStatus">Not saved yet</div>
+          <div class="closing-grid">
+            <label class="field-stack">Opening cash<input id="openingCashInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
+            <label class="field-stack">Cash counted<input id="countedCashInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
+          </div>
+          <div class="summary-list closing-list" id="dailyClosingList"></div>
+          <label class="field-stack">Note<textarea id="closingNoteInput" rows="2" placeholder="Optional note"></textarea></label>
+          <button class="primary-action compact-action" type="button" id="saveDailyClosingButton">Save closing</button>
+        </section>
+        <section class="summary-section">
+          <div class="section-head">
+            <h3>Missing closings</h3>
+            <span>Days with sales but no saved closing</span>
+          </div>
+          <div class="summary-list missing-closing-list" id="missingClosingList"></div>
+        </section>
+        <section class="summary-section">
+          <div class="section-head">
+            <h3>Closing history</h3>
+            <span>Tap a day to open it</span>
+          </div>
+          <div class="summary-list closing-history-list" id="closingHistoryList"></div>
+        </section>
+      </div>
+    </dialog>
+
     <dialog id="expenseDialog" class="modal page-modal">
       <div class="modal-card wide expense-card">
         <div class="modal-head">
@@ -212,6 +255,7 @@
               <option value="kpay">KPay</option>
               <option value="wavepay">WavePay</option>
               <option value="bank">Bank transfer</option>
+              <option value="owner">Owner paid</option>
             </select></label>
             <label class="field-stack">Date<input id="purchaseDateInput" type="date" /></label>
             <label class="field-stack">Time<input id="purchaseTimeInput" type="time" /></label>
@@ -253,6 +297,7 @@
               <option value="kpay">KPay</option>
               <option value="wavepay">WavePay</option>
               <option value="bank">Bank transfer</option>
+              <option value="owner">Owner paid</option>
             </select></label>
             <label class="field-stack">Date<input id="expenseDateInput" type="date" /></label>
             <label class="field-stack">Time<input id="expenseTimeInput" type="time" /></label>
@@ -327,7 +372,39 @@
             <span>Search product</span>
             <input id="productTrackingSearch" type="search" placeholder="Name, SKU, category, supplier" autocomplete="off" />
           </label>
+          <form class="stock-adjust-form" id="stockAdjustForm">
+            <div class="section-head">
+              <h3>Stock adjustment</h3>
+              <span>Lost, damaged, expired, or counted stock</span>
+            </div>
+            <div class="product-form-grid">
+              <label class="field-stack">Product<select id="stockAdjustProduct"></select></label>
+              <label class="field-stack">Action<select id="stockAdjustType">
+                <option value="remove">Remove stock</option>
+                <option value="add">Add stock</option>
+              </select></label>
+              <label class="field-stack">Quantity<input id="stockAdjustQty" required type="number" min="1" step="1" inputmode="numeric" /></label>
+              <label class="field-stack">Reason<select id="stockAdjustReason">
+                <option value="damaged">Damaged</option>
+                <option value="expired">Expired</option>
+                <option value="lost">Lost</option>
+                <option value="count-correction">Count correction</option>
+                <option value="other">Other</option>
+              </select></label>
+              <label class="field-stack wide-field">Note<input id="stockAdjustNote" placeholder="Optional note" /></label>
+            </div>
+            <div class="add-product-actions">
+              <button class="primary-button" type="submit">Save adjustment</button>
+            </div>
+          </form>
           <div class="inventory-list" id="inventoryList"></div>
+          <section class="summary-section">
+            <div class="section-head">
+              <h3>Adjustment history</h3>
+              <span>Recent manual stock changes</span>
+            </div>
+            <div class="summary-list" id="stockAdjustmentList"></div>
+          </section>
         </section>
       </div>
     </dialog>
@@ -428,12 +505,30 @@
           </div>
           <div class="setting-row">
             <div>
+              <h3>Report exports</h3>
+              <p>Download CSV reports for spreadsheet apps</p>
+            </div>
+            <div class="settings-actions report-actions">
+              <button class="text-button" type="button" data-report-export="sales">Sales CSV</button>
+              <button class="text-button" type="button" data-report-export="expenses">Expenses CSV</button>
+              <button class="text-button" type="button" data-report-export="purchases">Purchases CSV</button>
+              <button class="text-button" type="button" data-report-export="products">Products CSV</button>
+              <button class="text-button" type="button" data-report-export="closings">Closing CSV</button>
+              <button class="text-button" type="button" data-report-export="adjustments">Adjustments CSV</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
               <h3>Staff login</h3>
-              <p>Add staff members who can log in with their own PIN</p>
+              <p>Add staff members and choose what they can access</p>
             </div>
             <div class="staff-pin-row">
               <input id="staffNameSetting" placeholder="Staff name" />
               <input id="staffPinSetting" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
+              <select id="staffRoleSetting">
+                <option value="staff">Staff</option>
+                <option value="owner">Owner</option>
+              </select>
               <button class="text-button" type="button" id="saveStaffPinButton">Add staff</button>
               <div class="staff-list" id="staffList"></div>
             </div>
@@ -460,6 +555,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=34"></script>
+    <script src="./app.js?v=42"></script>
   </body>
 </html>

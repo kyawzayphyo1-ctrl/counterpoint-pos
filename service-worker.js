@@ -1,4 +1,4 @@
-const CACHE_NAME = "counterpoint-pos-v34";
+const CACHE_NAME = "counterpoint-pos-v42";
 const ASSETS = [
   "./",
   "./index.html",

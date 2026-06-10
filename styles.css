@@ -147,6 +147,7 @@ h2 {
 }
 
 .app-menu button {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 8px;
   min-height: 46px;
@@ -155,6 +156,29 @@ h2 {
   color: var(--ink);
   font-weight: 850;
   text-align: center;
+}
+
+.app-menu button.has-alert {
+  border-color: #f1c7ca;
+}
+
+.menu-alert-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.menu-alert-badge.is-hidden {
+  display: none;
 }
 
 .app-menu button small {
@@ -730,7 +754,8 @@ button:focus-visible {
   gap: 12px;
 }
 
-.summary-card {
+.summary-card,
+.closing-card {
   width: min(820px, calc(100vw - 28px));
 }
 
@@ -1100,6 +1125,136 @@ button:focus-visible {
   background: var(--panel);
 }
 
+.daily-closing-section.is-hidden {
+  display: none;
+}
+
+.closing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.closing-date-field {
+  max-width: 360px;
+}
+
+.closing-status {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f7f9fa;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.closing-warning {
+  border: 1px solid #f1c7ca;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff5f5;
+  color: var(--danger);
+  font-weight: 900;
+}
+
+.closing-warning.is-hidden {
+  display: none;
+}
+
+.closing-list .closing-difference {
+  border-color: #d7e4dd;
+  background: #f5fbf7;
+}
+
+.closing-list .closing-difference strong {
+  color: var(--success);
+}
+
+.closing-list .closing-difference.is-short {
+  border-color: #f1c7ca;
+  background: #fff5f5;
+}
+
+.closing-list .closing-difference.is-short strong {
+  color: var(--danger);
+}
+
+.closing-list .closing-difference.is-over strong {
+  color: var(--success);
+}
+
+.closing-list .closing-difference.is-waiting strong {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.compact-action {
+  justify-self: end;
+  width: min(220px, 100%);
+}
+
+.closing-history-list {
+  gap: 6px;
+}
+
+.closing-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.closing-history-item:hover {
+  border-color: var(--brand-2);
+  background: #f7fbfa;
+}
+
+.closing-history-item.is-selected {
+  border-color: var(--brand-2);
+  box-shadow: inset 4px 0 0 var(--brand-2);
+}
+
+.closing-history-item span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.closing-history-item small {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.closing-history-item strong {
+  color: var(--success);
+  white-space: nowrap;
+}
+
+.missing-closing-item {
+  border-color: #f1c7ca;
+  background: #fffafa;
+}
+
+.missing-closing-item.is-selected {
+  border-color: var(--danger);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+.missing-closing-item strong {
+  color: var(--danger);
+}
+
 .product-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1160,6 +1315,15 @@ button:focus-visible {
 
 .product-tracking-search span {
   text-transform: uppercase;
+}
+
+.stock-adjust-form {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f7f9fa;
 }
 
 .inventory-item.is-low-stock {
@@ -1586,7 +1750,12 @@ button:focus-visible {
   gap: 8px;
 }
 
-.staff-pin-row input {
+.report-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.staff-pin-row input,
+.staff-pin-row select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1674,6 +1843,11 @@ body.dark-mode .category-page,
 body.dark-mode .receipt,
 body.dark-mode .summary-grid article,
 body.dark-mode .summary-list > div:not(.empty-state),
+body.dark-mode .closing-status,
+body.dark-mode .closing-history-item,
+body.dark-mode .closing-warning,
+body.dark-mode .missing-closing-item,
+body.dark-mode .stock-adjust-form,
 body.dark-mode .expense-tabs button,
 body.dark-mode .voucher-line,
 body.dark-mode .voucher-total,
@@ -1893,6 +2067,14 @@ body.dark-mode .receipt-preview {
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .closing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-action {
+    justify-self: stretch;
   }
 
   .wide-field {

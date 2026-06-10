@@ -5,6 +5,8 @@ const DB_VERSION = 1;
 const STAFF_SESSION_KEY = "pos-current-staff-id";
 const DEFAULT_STAFF_ID = "starter-profile";
 const DEFAULT_STAFF_PIN = "1234";
+const STAFF_ROLE_OWNER = "owner";
+const STAFF_ROLE_STAFF = "staff";
 const LOW_STOCK_MIN = 5;
 const LOW_STOCK_RATIO = 0.2;
 const productColors = ["#2f7d6d", "#c94f4f", "#d49b3d", "#4d6f9f", "#7a5c99", "#557a46"];
@@ -27,6 +29,8 @@ const store = {
   receipts: readStorage("pos-receipts", []),
   purchases: readStorage("pos-purchases", []),
   expenses: readStorage("pos-expenses", []),
+  closings: normalizeClosings(readStorage("pos-closings", [])),
+  adjustments: readStorage("pos-stock-adjustments", []),
   settings: normalizeSettings(readStorage("pos-settings", {
     darkMode: false,
     layout: "grid",
@@ -53,6 +57,7 @@ const store = {
   summaryDay: formatDateInput(),
   summaryMonth: formatDateInput().slice(0, 7),
   summaryYear: String(new Date().getFullYear()),
+  closingDay: formatDateInput(),
   editingCategory: null,
   editingProduct: null,
   search: "",
@@ -99,6 +104,10 @@ const els = {
   printReceiptNowButton: document.querySelector("#printReceiptNowButton"),
   summaryDialog: document.querySelector("#summaryDialog"),
   summaryButton: document.querySelector("#summaryButton"),
+  closingButton: document.querySelector("#closingButton"),
+  closingDialog: document.querySelector("#closingDialog"),
+  closeClosingButton: document.querySelector("#closeClosingButton"),
+  closingAlertBadge: document.querySelector("#closingAlertBadge"),
   closeSummaryButton: document.querySelector("#closeSummaryButton"),
   summaryTitle: document.querySelector("#summaryTitle"),
   summaryPeriodButtons: document.querySelector("#summaryPeriodButtons"),
@@ -110,6 +119,18 @@ const els = {
   bestSellerRange: document.querySelector("#bestSellerRange"),
   paymentSummaryList: document.querySelector("#paymentSummaryList"),
   paymentSummaryRange: document.querySelector("#paymentSummaryRange"),
+  dailyClosingSection: document.querySelector("#dailyClosingSection"),
+  dailyClosingRange: document.querySelector("#dailyClosingRange"),
+  dailyClosingStatus: document.querySelector("#dailyClosingStatus"),
+  closingWarning: document.querySelector("#closingWarning"),
+  dailyClosingList: document.querySelector("#dailyClosingList"),
+  closingDayInput: document.querySelector("#closingDayInput"),
+  missingClosingList: document.querySelector("#missingClosingList"),
+  closingHistoryList: document.querySelector("#closingHistoryList"),
+  openingCashInput: document.querySelector("#openingCashInput"),
+  countedCashInput: document.querySelector("#countedCashInput"),
+  closingNoteInput: document.querySelector("#closingNoteInput"),
+  saveDailyClosingButton: document.querySelector("#saveDailyClosingButton"),
   expenseDialog: document.querySelector("#expenseDialog"),
   expenseButton: document.querySelector("#expenseButton"),
   closeExpenseButton: document.querySelector("#closeExpenseButton"),
@@ -165,6 +186,7 @@ const els = {
   importBackupInput: document.querySelector("#importBackupInput"),
   staffNameSetting: document.querySelector("#staffNameSetting"),
   staffPinSetting: document.querySelector("#staffPinSetting"),
+  staffRoleSetting: document.querySelector("#staffRoleSetting"),
   saveStaffPinButton: document.querySelector("#saveStaffPinButton"),
   staffList: document.querySelector("#staffList"),
   loginDialog: document.querySelector("#loginDialog"),
@@ -187,6 +209,14 @@ const els = {
   productImageFile: document.querySelector("#productImageFile"),
   saveProductButton: document.querySelector("#saveProductButton"),
   inventoryList: document.querySelector("#inventoryList"),
+  stockAdjustForm: document.querySelector("#stockAdjustForm"),
+  stockAdjustProduct: document.querySelector("#stockAdjustProduct"),
+  stockAdjustType: document.querySelector("#stockAdjustType"),
+  stockAdjustQty: document.querySelector("#stockAdjustQty"),
+  stockAdjustReason: document.querySelector("#stockAdjustReason"),
+  stockAdjustNote: document.querySelector("#stockAdjustNote"),
+  stockAdjustmentList: document.querySelector("#stockAdjustmentList"),
+  reportExportButtons: document.querySelectorAll("[data-report-export]"),
   categoryPages: document.querySelector("#categoryPages"),
   toast: document.querySelector("#toast")
 };
@@ -232,11 +262,13 @@ async function writeDbRecord(key, value) {
 }
 
 async function hydrateFromLocalDb() {
-  const [products, receipts, purchases, expenses, settings, staff, collapsed] = await Promise.all([
+  const [products, receipts, purchases, expenses, closings, adjustments, settings, staff, collapsed] = await Promise.all([
     readDbRecord("pos-products"),
     readDbRecord("pos-receipts"),
     readDbRecord("pos-purchases"),
     readDbRecord("pos-expenses"),
+    readDbRecord("pos-closings"),
+    readDbRecord("pos-stock-adjustments"),
     readDbRecord("pos-settings"),
     readDbRecord("pos-staff"),
     readDbRecord("pos-collapsed-categories")
@@ -246,6 +278,8 @@ async function hydrateFromLocalDb() {
   if (receipts) store.receipts = receipts;
   if (purchases) store.purchases = purchases;
   if (expenses) store.expenses = expenses;
+  if (closings) store.closings = normalizeClosings(closings);
+  if (adjustments) store.adjustments = adjustments;
   if (settings) store.settings = normalizeSettings(settings);
   if (staff) store.staff = normalizeStaff(staff);
   if (collapsed) store.collapsedCategories = new Set(collapsed);
@@ -254,6 +288,8 @@ async function hydrateFromLocalDb() {
   writeDbRecord("pos-receipts", store.receipts);
   writeDbRecord("pos-purchases", store.purchases);
   writeDbRecord("pos-expenses", store.expenses);
+  writeDbRecord("pos-closings", store.closings);
+  writeDbRecord("pos-stock-adjustments", store.adjustments);
   writeDbRecord("pos-settings", store.settings);
   writeDbRecord("pos-staff", store.staff);
   writeDbRecord("pos-collapsed-categories", [...store.collapsedCategories]);
@@ -272,6 +308,7 @@ function normalizeStaff(staff) {
         id: isLegacyStarter ? DEFAULT_STAFF_ID : member.id || createId(),
         name: isLegacyStarter ? "Starter profile" : member.name || "Staff",
         pin,
+        role: member.role === STAFF_ROLE_STAFF ? STAFF_ROLE_STAFF : STAFF_ROLE_OWNER,
         isDefault: Boolean(member.isDefault || isLegacyStarter || member.id === DEFAULT_STAFF_ID)
       };
     });
@@ -284,9 +321,24 @@ function normalizeStaff(staff) {
       id: DEFAULT_STAFF_ID,
       name: "Starter profile",
       pin: String(staff?.pin || DEFAULT_STAFF_PIN),
+      role: STAFF_ROLE_OWNER,
       isDefault: true
     }]
   };
+}
+
+function normalizeClosings(closings) {
+  if (!Array.isArray(closings)) return [];
+  return closings
+    .filter((closing) => closing && closing.date)
+    .map((closing) => ({
+      date: closing.date,
+      openingCash: Number(closing.openingCash || 0),
+      countedCash: Number(closing.countedCash || 0),
+      note: closing.note || "",
+      savedAt: closing.savedAt || new Date().toISOString(),
+      savedBy: closing.savedBy || ""
+    }));
 }
 
 function normalizeSettings(settings) {
@@ -384,9 +436,24 @@ function getCurrentStaff() {
   return store.staff.members.find((member) => member.id === id) || null;
 }
 
+function isOwner() {
+  return getCurrentStaff()?.role === STAFF_ROLE_OWNER;
+}
+
+function requireOwner(action = "This area") {
+  if (isOwner()) return true;
+  showToast(`${action} needs owner login`);
+  return false;
+}
+
 function renderStaffBadge() {
   const staff = getCurrentStaff();
-  els.currentStaffBadge.textContent = staff ? staff.name : "Locked";
+  els.currentStaffBadge.textContent = staff ? `${staff.name} / ${staff.role === STAFF_ROLE_OWNER ? "Owner" : "Staff"}` : "Locked";
+  const ownerOnlyButtons = [els.summaryButton, els.closingButton, els.expenseButton, els.categoriesButton, els.manageButton, els.settingsButton];
+  ownerOnlyButtons.forEach((button) => {
+    button.disabled = Boolean(staff && staff.role !== STAFF_ROLE_OWNER);
+    button.title = button.disabled ? "Owner only" : "";
+  });
 }
 
 function renderStaffControls() {
@@ -395,7 +462,7 @@ function renderStaffControls() {
     const row = document.createElement("div");
     row.className = "staff-list-item";
     row.innerHTML = `
-      <span>${escapeHtml(member.name)}${member.isDefault ? " <small>default PIN 1234</small>" : ""}</span>
+      <span>${escapeHtml(member.name)} <small>${member.role === STAFF_ROLE_OWNER ? "Owner" : "Staff"}${member.isDefault ? " / default PIN 1234" : ""}</small></span>
       <button class="link-action danger" type="button">delete</button>
     `;
     row.querySelector("button").addEventListener("click", () => deleteStaff(member.id));
@@ -403,9 +470,10 @@ function renderStaffControls() {
   });
 }
 
-function addStaff(name, pin) {
+function addStaff(name, pin, role = STAFF_ROLE_STAFF) {
   const cleanName = name.trim();
   const cleanPin = pin.trim();
+  const cleanRole = role === STAFF_ROLE_OWNER ? STAFF_ROLE_OWNER : STAFF_ROLE_STAFF;
   if (!cleanName || cleanPin.length < 4) {
     showToast("Staff name and 4 digit PIN required");
     return false;
@@ -414,7 +482,7 @@ function addStaff(name, pin) {
     showToast("Choose a different PIN for each staff member");
     return false;
   }
-  store.staff.members.push({ id: createId(), name: cleanName, pin: cleanPin, isDefault: false });
+  store.staff.members.push({ id: createId(), name: cleanName, pin: cleanPin, role: cleanRole, isDefault: false });
   writeStorage("pos-staff", store.staff);
   renderStaffControls();
   showToast("Staff added");
@@ -495,7 +563,8 @@ function getPaymentLabel(method) {
     card: "Card",
     kpay: "KPay",
     wavepay: "WavePay",
-    bank: "Bank transfer"
+    bank: "Bank transfer",
+    owner: "Owner paid"
   }[method] || "Cash";
 }
 
@@ -570,6 +639,195 @@ function renderSummaryControls(range) {
 
 function getActiveReceipts(receipts = store.receipts) {
   return receipts.filter((receipt) => !receipt.voidedAt);
+}
+
+function getDailyClosingDate() {
+  return store.closingDay || formatDateInput();
+}
+
+function getDailyClosingRange() {
+  const selected = getDailyClosingDate();
+  const start = new Date(`${selected}T00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return {
+    start,
+    end,
+    label: start.toLocaleDateString()
+  };
+}
+
+function getDailyClosing() {
+  const date = getDailyClosingDate();
+  return store.closings.find((closing) => closing.date === date) || null;
+}
+
+function getCashMovementTotals(receipts, purchases, expenses) {
+  const cashSales = receipts
+    .filter((receipt) => (receipt.paymentMethod || "cash") === "cash")
+    .reduce((sum, receipt) => sum + Number(receipt.total || 0), 0);
+  const cashPurchases = purchases
+    .filter((purchase) => (purchase.paymentMethod || "cash") === "cash")
+    .reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+  const cashExpenses = expenses
+    .filter((expense) => (expense.paymentMethod || "cash") === "cash")
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  return { cashSales, cashPurchases, cashExpenses };
+}
+
+function getDailyClosingMovements() {
+  const range = getDailyClosingRange();
+  return {
+    range,
+    receipts: getActiveReceipts().filter((receipt) => isInSummaryRange(receipt.createdAt, range)),
+    purchases: store.purchases.filter((purchase) => isInSummaryRange(purchase.createdAt, range)),
+    expenses: store.expenses.filter((expense) => isInSummaryRange(expense.createdAt, range))
+  };
+}
+
+function getSaleDateKey(value) {
+  return formatDateInput(new Date(value));
+}
+
+function getMissingClosingDays() {
+  const savedDates = new Set(store.closings.map((closing) => closing.date));
+  const salesByDate = new Map();
+  getActiveReceipts().forEach((receipt) => {
+    const date = getSaleDateKey(receipt.createdAt);
+    const current = salesByDate.get(date) || { date, sales: 0, orders: 0 };
+    current.sales += Number(receipt.total || 0);
+    current.orders += 1;
+    salesByDate.set(date, current);
+  });
+  return [...salesByDate.values()]
+    .filter((day) => !savedDates.has(day.date))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function renderClosingAlertBadge() {
+  const missingCount = getMissingClosingDays().length;
+  els.closingAlertBadge.classList.toggle("is-hidden", missingCount === 0);
+  els.closingAlertBadge.textContent = missingCount ? String(missingCount) : "";
+  els.closingButton.classList.toggle("has-alert", missingCount > 0);
+}
+
+function renderMissingClosings() {
+  const missingDays = getMissingClosingDays();
+  const selectedDate = getDailyClosingDate();
+  if (!missingDays.length) {
+    els.missingClosingList.innerHTML = `<div class="empty-state">No missing closings.</div>`;
+    return;
+  }
+  els.missingClosingList.innerHTML = missingDays.map((day) => `
+    <button class="closing-history-item missing-closing-item${day.date === selectedDate ? " is-selected" : ""}" type="button" data-missing-closing-date="${escapeHtml(day.date)}">
+      <span>${new Date(`${day.date}T00:00`).toLocaleDateString()}<small>${day.orders} ${day.orders === 1 ? "sale" : "sales"} not closed</small></span>
+      <strong>${money.format(day.sales)}</strong>
+    </button>
+  `).join("");
+}
+
+function updateDailyClosingPreview(receipts, purchases, expenses) {
+  const { cashSales, cashPurchases, cashExpenses } = getCashMovementTotals(receipts, purchases, expenses);
+  const openingCash = Number(els.openingCashInput.value || 0);
+  const hasCountedCash = els.countedCashInput.value.trim() !== "";
+  const countedCash = Number(els.countedCashInput.value || 0);
+  const expectedCash = openingCash + cashSales - cashPurchases - cashExpenses;
+  const difference = countedCash - expectedCash;
+  const differenceClass = difference < 0 ? " is-short" : difference > 0 ? " is-over" : "";
+
+  els.dailyClosingList.innerHTML = `
+    <div><span>Cash sales</span><strong>${money.format(cashSales)}</strong></div>
+    <div><span>Cash purchases</span><strong>${money.format(cashPurchases)}</strong></div>
+    <div><span>Cash expenses</span><strong>${money.format(cashExpenses)}</strong></div>
+    <div><span>Expected drawer cash</span><strong>${money.format(expectedCash)}</strong></div>
+    <div class="closing-difference${hasCountedCash ? differenceClass : " is-waiting"}"><span>Over / short</span><strong>${hasCountedCash ? money.format(difference) : "Enter cash count"}</strong></div>
+  `;
+}
+
+function getClosingSnapshot(closing) {
+  const range = getDailyClosingRange();
+  const receipts = getActiveReceipts().filter((receipt) => isInSummaryRange(receipt.createdAt, range));
+  const purchases = store.purchases.filter((purchase) => isInSummaryRange(purchase.createdAt, range));
+  const expenses = store.expenses.filter((expense) => isInSummaryRange(expense.createdAt, range));
+  const { cashSales, cashPurchases, cashExpenses } = getCashMovementTotals(receipts, purchases, expenses);
+  const expectedCash = Number(closing.openingCash || 0) + cashSales - cashPurchases - cashExpenses;
+  const difference = Number(closing.countedCash || 0) - expectedCash;
+  return { expectedCash, difference };
+}
+
+function renderClosingHistory() {
+  const selectedDate = getDailyClosingDate();
+  const closings = store.closings
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 20);
+  if (!closings.length) {
+    els.closingHistoryList.innerHTML = `<div class="empty-state">Saved closing days will appear here.</div>`;
+    return;
+  }
+  els.closingHistoryList.innerHTML = closings.map((closing) => {
+    const previousDay = store.closingDay;
+    store.closingDay = closing.date;
+    const snapshot = getClosingSnapshot(closing);
+    store.closingDay = previousDay;
+    return `
+      <button class="closing-history-item${closing.date === selectedDate ? " is-selected" : ""}" type="button" data-closing-date="${escapeHtml(closing.date)}">
+        <span>${new Date(`${closing.date}T00:00`).toLocaleDateString()}<small>${closing.savedBy ? `Saved by ${escapeHtml(closing.savedBy)}` : "Saved closing"}</small></span>
+        <strong>${money.format(snapshot.difference)}</strong>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderDailyClosing() {
+  const { range, receipts, purchases, expenses } = getDailyClosingMovements();
+  const closing = getDailyClosing();
+  els.closingDayInput.value = getDailyClosingDate();
+  els.dailyClosingRange.textContent = range.label;
+  els.openingCashInput.value = closing ? closing.openingCash : "";
+  els.countedCashInput.value = closing ? closing.countedCash : "";
+  els.closingNoteInput.value = closing?.note || "";
+  els.dailyClosingStatus.textContent = closing
+    ? `Saved ${new Date(closing.savedAt).toLocaleString()}${closing.savedBy ? ` by ${closing.savedBy}` : ""}`
+    : "Not saved yet";
+  const hasSales = receipts.length > 0;
+  els.closingWarning.classList.toggle("is-hidden", Boolean(closing) || !hasSales);
+  els.closingWarning.textContent = hasSales && !closing
+    ? "This day has sales but no saved closing yet."
+    : "";
+  updateDailyClosingPreview(receipts, purchases, expenses);
+  renderMissingClosings();
+  renderClosingHistory();
+  renderClosingAlertBadge();
+}
+
+function focusDailyClosingForm() {
+  els.dailyClosingSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => els.closingDayInput.focus(), 220);
+}
+
+function saveDailyClosing() {
+  const date = getDailyClosingDate();
+  const staff = getCurrentStaff();
+  const closing = {
+    date,
+    openingCash: Number(els.openingCashInput.value || 0),
+    countedCash: Number(els.countedCashInput.value || 0),
+    note: els.closingNoteInput.value.trim(),
+    savedAt: new Date().toISOString(),
+    savedBy: staff?.name || "Owner"
+  };
+  const existingIndex = store.closings.findIndex((item) => item.date === date);
+  if (existingIndex >= 0) store.closings[existingIndex] = closing;
+  else store.closings.push(closing);
+  writeStorage("pos-closings", store.closings);
+  els.dailyClosingStatus.textContent = `Saved ${new Date(closing.savedAt).toLocaleString()} by ${closing.savedBy}`;
+  els.saveDailyClosingButton.textContent = "Saved";
+  window.setTimeout(() => {
+    els.saveDailyClosingButton.textContent = "Save closing";
+  }, 1200);
+  showToast(`Closing saved for ${date}`);
+  renderDailyClosing();
 }
 
 function renderCategories() {
@@ -743,6 +1001,7 @@ function showSaleComplete(receipt) {
 }
 
 function voidReceipt(receiptNumber) {
+  if (!requireOwner("Void/refund")) return;
   const receipt = store.receipts.find((item) => item.number === receiptNumber);
   if (!receipt || receipt.voidedAt) return;
   const ok = window.confirm(`Void and refund ${receipt.number}? Stock will be returned.`);
@@ -770,8 +1029,10 @@ function renderSummary() {
   const selectedReceipts = getActiveReceipts().filter((receipt) => isInSummaryRange(receipt.createdAt, range));
   const selectedPurchases = store.purchases.filter((purchase) => isInSummaryRange(purchase.createdAt, range));
   const selectedExpenses = store.expenses.filter((expense) => isInSummaryRange(expense.createdAt, range));
+  const selectedAdjustments = store.adjustments.filter((adjustment) => isInSummaryRange(adjustment.createdAt, range));
   const purchaseSpend = selectedPurchases.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
   const otherSpend = selectedExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const inventoryLoss = selectedAdjustments.reduce((sum, adjustment) => sum + getAdjustmentLossValue(adjustment), 0);
   const totals = selectedReceipts.reduce((acc, receipt) => {
     acc.sales += Number(receipt.total || 0);
     acc.profit += Number(receipt.profit || 0);
@@ -785,7 +1046,8 @@ function renderSummary() {
     <article><span>Profit</span><strong>${money.format(totals.profit)}</strong></article>
     <article><span>Purchases</span><strong>${money.format(purchaseSpend)}</strong></article>
     <article><span>Other expenses</span><strong>${money.format(otherSpend)}</strong></article>
-    <article><span>Cash after spending</span><strong>${money.format(totals.sales - purchaseSpend - otherSpend)}</strong></article>
+    <article><span>Inventory loss</span><strong>${money.format(inventoryLoss)}</strong></article>
+    <article><span>Net after spending</span><strong>${money.format(totals.sales - purchaseSpend - otherSpend - inventoryLoss)}</strong></article>
     <article><span>Orders</span><strong>${totals.orders}</strong></article>
     <article><span>Items sold</span><strong>${totals.items}</strong></article>
   `;
@@ -1145,12 +1407,106 @@ function isLowStock(product) {
   return stock <= LOW_STOCK_MIN || (purchased > 0 && stock / purchased <= LOW_STOCK_RATIO);
 }
 
+function getProductSoldQuantity(productId) {
+  return getActiveReceipts().reduce((total, receipt) => {
+    const lineTotal = receipt.lines
+      .filter((line) => line.id === productId)
+      .reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+    return total + lineTotal;
+  }, 0);
+}
+
+function getAdjustmentLossValue(adjustment) {
+  if (adjustment.type !== "remove") return 0;
+  if (Number.isFinite(Number(adjustment.lossValue))) return Number(adjustment.lossValue || 0);
+  const product = store.products.find((item) => item.id === adjustment.productId);
+  return Number(adjustment.quantity || 0) * Number(product?.cost || 0);
+}
+
+function renderStockAdjustmentForm() {
+  const currentValue = els.stockAdjustProduct.value;
+  els.stockAdjustProduct.innerHTML = store.products
+    .map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} (${Number(product.stock || 0)} left)</option>`)
+    .join("");
+  if (store.products.some((product) => product.id === currentValue)) {
+    els.stockAdjustProduct.value = currentValue;
+  }
+  els.stockAdjustForm.querySelector("button").disabled = store.products.length === 0;
+}
+
+function renderStockAdjustments() {
+  if (!store.adjustments.length) {
+    els.stockAdjustmentList.innerHTML = `<div class="empty-state">Manual stock changes will appear here.</div>`;
+    return;
+  }
+  els.stockAdjustmentList.innerHTML = store.adjustments
+    .slice()
+    .reverse()
+    .slice(0, 8)
+    .map((adjustment) => {
+      const sign = adjustment.type === "add" ? "+" : "-";
+      const loss = getAdjustmentLossValue(adjustment);
+      return `
+        <div>
+          <span>${new Date(adjustment.createdAt).toLocaleString()} / ${escapeHtml(adjustment.reason)}</span>
+          <strong>${escapeHtml(adjustment.productName)} ${sign}${adjustment.quantity}${loss ? ` / loss ${money.format(loss)}` : ""}</strong>
+        </div>
+      `;
+    }).join("");
+}
+
+function saveStockAdjustment(event) {
+  event.preventDefault();
+  const product = store.products.find((item) => item.id === els.stockAdjustProduct.value);
+  const quantity = Math.floor(Number(els.stockAdjustQty.value || 0));
+  if (!product || quantity <= 0) {
+    showToast("Choose a product and quantity");
+    return;
+  }
+  const type = els.stockAdjustType.value;
+  if (type === "remove" && quantity > Number(product.stock || 0)) {
+    showToast("Cannot remove more than current stock");
+    return;
+  }
+
+  const beforeStock = Number(product.stock || 0);
+  const unitCost = Number(product.cost || 0);
+  product.stock = type === "add" ? beforeStock + quantity : beforeStock - quantity;
+  const staff = getCurrentStaff();
+  const adjustment = {
+    id: createId(),
+    productId: product.id,
+    productName: product.name,
+    type,
+    quantity,
+    reason: els.stockAdjustReason.value,
+    note: els.stockAdjustNote.value.trim(),
+    beforeStock,
+    afterStock: product.stock,
+    unitCost,
+    lossValue: type === "remove" ? quantity * unitCost : 0,
+    createdAt: new Date().toISOString(),
+    staffName: staff?.name || "Owner"
+  };
+  store.adjustments.push(adjustment);
+  writeStorage("pos-products", store.products);
+  writeStorage("pos-stock-adjustments", store.adjustments);
+  els.stockAdjustQty.value = "";
+  els.stockAdjustNote.value = "";
+  renderProducts();
+  renderCart();
+  renderInventory();
+  renderCategoryPages();
+  showToast(`Stock adjusted for ${product.name}`);
+}
+
 function renderInventory() {
+  renderStockAdjustmentForm();
   els.inventoryList.innerHTML = "";
   const query = store.productTrackingSearch.trim().toLowerCase();
   let visibleCount = 0;
   store.products.forEach((product) => {
-    const sold = Math.max(product.purchased - product.stock, 0);
+    const sold = getProductSoldQuantity(product.id);
     const supplierHistory = getProductSupplierHistory(product);
     const latestSupplier = supplierHistory[0];
     const supplierCount = new Set(supplierHistory.map((entry) => entry.supplier)).size;
@@ -1202,6 +1558,7 @@ function renderInventory() {
   if (!visibleCount) {
     els.inventoryList.innerHTML = `<div class="empty-state">No products match this search.</div>`;
   }
+  renderStockAdjustments();
 }
 
 function renderCategoryPages() {
@@ -1330,6 +1687,7 @@ function render() {
   renderCart();
   renderInventory();
   renderCategoryPages();
+  renderClosingAlertBadge();
 }
 
 function addToCart(id) {
@@ -1571,6 +1929,8 @@ function exportBackup() {
     receipts: store.receipts,
     purchases: store.purchases,
     expenses: store.expenses,
+    closings: store.closings,
+    adjustments: store.adjustments,
     settings: store.settings,
     staff: store.staff,
     collapsedCategories: [...store.collapsedCategories]
@@ -1584,6 +1944,104 @@ function exportBackup() {
   URL.revokeObjectURL(url);
 }
 
+function csvEscape(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadCsv(filename, rows) {
+  if (!rows.length) {
+    showToast("No report data to export");
+    return;
+  }
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(","))
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}-${formatDateInput()}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportReport(type) {
+  const reports = {
+    sales: () => store.receipts.map((receipt) => ({
+      number: receipt.number,
+      date: new Date(receipt.createdAt).toLocaleString(),
+      staff: receipt.staffName || "",
+      payment: getPaymentLabel(receipt.paymentMethod),
+      subtotal: receipt.subtotal,
+      tax: receipt.tax,
+      discount: receipt.discount,
+      total: receipt.total,
+      profit: receipt.profit,
+      voided: receipt.voidedAt ? "yes" : "no"
+    })),
+    expenses: () => store.expenses.map((expense) => ({
+      number: expense.number,
+      date: new Date(expense.createdAt).toLocaleString(),
+      category: getExpenseCategoryLabel(expense.category),
+      payee: expense.payee,
+      payment: getPaymentLabel(expense.paymentMethod),
+      amount: expense.amount,
+      note: expense.note || ""
+    })),
+    purchases: () => store.purchases.flatMap((purchase) => purchase.lines.map((line) => ({
+      number: purchase.number,
+      voucher: purchase.voucherNumber || "",
+      date: new Date(purchase.createdAt).toLocaleString(),
+      supplier: purchase.supplier,
+      payment: getPaymentLabel(purchase.paymentMethod),
+      product: line.name,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      lineTotal: line.lineTotal,
+      voucherTotal: purchase.total,
+      note: purchase.note || ""
+    }))),
+    products: () => store.products.map((product) => ({
+      name: product.name,
+      category: product.category,
+      sku: product.sku,
+      barcode: product.barcode || "",
+      buyingPrice: product.cost,
+      sellingPrice: product.price,
+      bought: product.purchased,
+      stockLeft: product.stock,
+      sold: getProductSoldQuantity(product.id)
+    })),
+    closings: () => store.closings.map((closing) => ({
+      date: closing.date,
+      openingCash: closing.openingCash,
+      countedCash: closing.countedCash,
+      savedAt: new Date(closing.savedAt).toLocaleString(),
+      savedBy: closing.savedBy || "",
+      note: closing.note || ""
+    })),
+    adjustments: () => store.adjustments.map((adjustment) => ({
+      date: new Date(adjustment.createdAt).toLocaleString(),
+      product: adjustment.productName,
+      type: adjustment.type,
+      quantity: adjustment.quantity,
+      reason: adjustment.reason,
+      unitCost: adjustment.unitCost || "",
+      lossValue: getAdjustmentLossValue(adjustment),
+      beforeStock: adjustment.beforeStock,
+      afterStock: adjustment.afterStock,
+      staff: adjustment.staffName || "",
+      note: adjustment.note || ""
+    }))
+  };
+  const buildRows = reports[type];
+  if (!buildRows) return;
+  downloadCsv(`counterpoint-${type}`, buildRows());
+}
+
 function importBackup(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -1594,6 +2052,8 @@ function importBackup(file) {
       store.receipts = payload.receipts || [];
       store.purchases = payload.purchases || [];
       store.expenses = payload.expenses || [];
+      store.closings = normalizeClosings(payload.closings || []);
+      store.adjustments = payload.adjustments || [];
       store.settings = normalizeSettings(payload.settings || store.settings);
       store.staff = normalizeStaff(payload.staff || store.staff);
       store.collapsedCategories = new Set(payload.collapsedCategories || []);
@@ -1601,6 +2061,8 @@ function importBackup(file) {
       writeStorage("pos-receipts", store.receipts);
       writeStorage("pos-purchases", store.purchases);
       writeStorage("pos-expenses", store.expenses);
+      writeStorage("pos-closings", store.closings);
+      writeStorage("pos-stock-adjustments", store.adjustments);
       writeStorage("pos-settings", store.settings);
       writeStorage("pos-staff", store.staff);
       writeStorage("pos-collapsed-categories", [...store.collapsedCategories]);
@@ -1732,10 +2194,18 @@ els.menuButton.addEventListener("click", (event) => {
   toggleMenu();
 });
 els.summaryButton.addEventListener("click", () => {
+  if (!requireOwner("Summary")) return;
   toggleMenu(false);
   renderSummary();
   els.summaryDialog.showModal();
 });
+els.closingButton.addEventListener("click", () => {
+  if (!requireOwner("Daily closing")) return;
+  toggleMenu(false);
+  renderDailyClosing();
+  els.closingDialog.showModal();
+});
+els.closeClosingButton.addEventListener("click", () => els.closingDialog.close());
 els.closeSummaryButton.addEventListener("click", () => els.summaryDialog.close());
 els.summaryPeriodButtons.addEventListener("click", (event) => {
   const button = event.target.closest("[data-summary-period]");
@@ -1755,7 +2225,33 @@ els.summaryYearInput.addEventListener("input", (event) => {
   store.summaryYear = event.target.value || String(new Date().getFullYear());
   renderSummary();
 });
+function refreshDailyClosingPreview() {
+  const { receipts, purchases, expenses } = getDailyClosingMovements();
+  updateDailyClosingPreview(receipts, purchases, expenses);
+}
+els.closingDayInput.addEventListener("input", (event) => {
+  store.closingDay = event.target.value || formatDateInput();
+  renderDailyClosing();
+});
+els.openingCashInput.addEventListener("input", refreshDailyClosingPreview);
+els.countedCashInput.addEventListener("input", refreshDailyClosingPreview);
+els.saveDailyClosingButton.addEventListener("click", saveDailyClosing);
+els.closingHistoryList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-closing-date]");
+  if (!button) return;
+  store.closingDay = button.dataset.closingDate;
+  renderDailyClosing();
+  focusDailyClosingForm();
+});
+els.missingClosingList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-missing-closing-date]");
+  if (!button) return;
+  store.closingDay = button.dataset.missingClosingDate;
+  renderDailyClosing();
+  focusDailyClosingForm();
+});
 els.expenseButton.addEventListener("click", () => {
+  if (!requireOwner("Expenses")) return;
   toggleMenu(false);
   openExpenseDialog();
 });
@@ -1795,6 +2291,7 @@ els.historyButton.addEventListener("click", () => {
 });
 els.closeHistoryButton.addEventListener("click", () => els.historyDialog.close());
 els.categoriesButton.addEventListener("click", () => {
+  if (!requireOwner("Categories")) return;
   toggleMenu(false);
   renderCategoryPages();
   els.categoriesDialog.showModal();
@@ -1802,6 +2299,7 @@ els.categoriesButton.addEventListener("click", () => {
 els.closeCategoriesButton.addEventListener("click", () => els.categoriesDialog.close());
 els.cancelCategoriesButton.addEventListener("click", () => els.categoriesDialog.close());
 els.manageButton.addEventListener("click", () => {
+  if (!requireOwner("Products")) return;
   toggleMenu(false);
   store.activeProductPage = "";
   renderProductPage();
@@ -1827,8 +2325,10 @@ els.productTrackingSearch.addEventListener("input", (event) => {
   store.productTrackingSearch = event.target.value;
   renderInventory();
 });
+els.stockAdjustForm.addEventListener("submit", saveStockAdjustment);
 els.productForm.addEventListener("submit", saveProduct);
 els.settingsButton.addEventListener("click", () => {
+  if (!requireOwner("Settings")) return;
   toggleMenu(false);
   applySettings();
   renderStaffControls();
@@ -1898,6 +2398,9 @@ els.taxRateInput.addEventListener("input", (event) => {
   renderCart();
 });
 els.exportBackupButton.addEventListener("click", exportBackup);
+els.reportExportButtons.forEach((button) => {
+  button.addEventListener("click", () => exportReport(button.dataset.reportExport));
+});
 els.importBackupInput.addEventListener("change", (event) => {
   importBackup(event.target.files[0]);
   event.target.value = "";
@@ -1905,9 +2408,11 @@ els.importBackupInput.addEventListener("change", (event) => {
 els.saveStaffPinButton.addEventListener("click", () => {
   const name = els.staffNameSetting.value;
   const nextPin = els.staffPinSetting.value.trim();
-  if (addStaff(name, nextPin)) {
+  const role = els.staffRoleSetting.value;
+  if (addStaff(name, nextPin, role)) {
     els.staffNameSetting.value = "";
     els.staffPinSetting.value = "";
+    els.staffRoleSetting.value = STAFF_ROLE_STAFF;
   }
 });
 els.loginForm.addEventListener("submit", (event) => {
